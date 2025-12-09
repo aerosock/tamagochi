@@ -48,13 +48,16 @@ def zkontroluj_status():
     
 
 def hra():
-    if kohout["nestastnost"] == True:
-        kohout["nestastnost"] = False
-        kohout["energie"] -= 10
-        kohout["hlad"] -= 10
-        kohout["zizen"] -= 10
-        ui.notify(f"{kohout["jmeno"]} je vic happy, jeho energie je {kohout["energie"]}")
+    kohout["nestastnost"] = False
+    kohout["energie"] -= 10
+    kohout["hlad"] -= 10
+    kohout["zizen"] -= 10
+    obrazek.source = cutout(3, 65)
+    obrazek.style.transform = "scale(1.2)"
+    ui.notify(f"{kohout["jmeno"]} je vic happy, jeho energie je {kohout["energie"]}")
 
+def kys():
+    pass
 
 def insult():
     if kohout["nestastnost"] == False:
@@ -125,6 +128,8 @@ def main():
         "krmeni": krmeni,
         "hra": hra,
         "spanek": spanek,
+        "umřit": kys,
+
     }
 
     load()
