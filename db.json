@@ -1,0 +1,14 @@
+{
+  "id": 12312312,
+  "nickname": "Tamagochi",
+  "password": "123123Aa#",
+  "date": "2024-06-12T10:20:30Z",
+  "hunger": 0,
+  "thirst": 0,
+  "age": 0,
+  "lives": 100,
+  "dirty": 0,
+  "color": "ffffff",
+  "energy": 90,
+  "currentSkin": "default"
+}
