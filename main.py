@@ -7,8 +7,13 @@ from PIL import Image
 import pathlib
 import asyncio
 from itertools import cycle
-import io
-import base64
+
+cat_layer = None
+canvas = None
+zoom = 1.0
+
+# sprite upscaling factor (NEAREST = crisp pixel art)
+SPRITE_SCALE = 4
 
 BASE = pathlib.Path(__file__).parent
 app.add_static_files('/static', str(BASE / 'static'))       # runescape.ttf here
@@ -25,36 +30,47 @@ ui.add_head_html("""
     font-family: 'runescape', sans-serif;
     font-size: 16px;
   }
+  .pixelated {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+  }
 </style>
 <link rel="stylesheet" href="https://maxst.icons8.com/vue-static/landings/line-awesome/line-awesome/1.3.0/css/line-awesome.min.css">
 """)
 
-def spriteHandler(xs, ys, xe, ye, name):
-    return Image.open(BASE / 'textures' / name).crop((xs, ys, xs + xe, ys + ye))
+def upscale_nearest(img, scale) -> Image.Image:
+    if scale <= 1:
+        return img
+    return img.resize((img.width * scale, img.height * scale), resample=Image.NEAREST)
 
-def spriteCycler(x, y, step, name):
-    x *=  step
-    y *=  step
-    return Image.open(BASE / 'textures' / name).crop((x, y, x + step, y + step))
-    
+def spriteHandler(xs, ys, xe, ye, name, scale: int = 1):
+    img = Image.open(BASE / 'textures' / name).crop((xs, ys, xs + xe, ys + ye))
+    return upscale_nearest(img, scale)
+
+
 
 def hud_top_left():
     with ui.element('div').classes('relative'):
         ui.image("/textures/statusbar.png").classes('w-100 mb-2')
-        
+
         with ui.element('div').classes('absolute left-33 top-9 w-63'):
             ui.linear_progress(value=0.7, color='red', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
             ui.badge('67').classes('absolute-full flex flex-center text-black bg-transparent text-xl content-center h-5')
             ui.image("/textures/heart.png").classes('absolute w-10 h-10 -left-5 -top-5')
-            
-        with ui.element('div').classes('absolute left-33 top-17 w-63'):    
+
+        with ui.element('div').classes('absolute left-33 top-17 w-63'):
             ui.linear_progress(value=0.7, color='yellow', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
             ui.badge('67').classes('absolute-full flex flex-center text-pink bg-transparent text-xl h-5')
-            ui.image("/textures/bolt.png").classes('absolute w-10 h-10 z-100 -left-5 -top-3')  
-        
+            ui.image("/textures/bolt.png").classes('absolute w-10 h-10 z-100 -left-5 -top-3')
+
         with ui.element('div').classes('absolute left-30 top-24'):
-            ui.image("/textures/coin.png").classes('w-12 h-12 inline-block ml-2')  
-            ui.label('181122').classes('inline-block ml-2 text-2xl font-bold').style('transform: translateY(7px); color: #f0e68c; text-shadow: 2px 2px 3px #000;')
+            ui.image("/textures/coin.png").classes('w-12 h-12 inline-block ml-2')
+            ui.label('181122').classes('inline-block ml-2 text-2xl font-bold').style(
+                'transform: translateY(7px); color: #f0e68c; text-shadow: 2px 2px 3px #000;')
+            ui.circular_progress(value =0.5, show_value=False).props('instant-feedback').classes('inline-block ml-2')
+            ui.label('50%').classes('inline-block ml-2 text-lg font-bold').style('transform: translateY(7px); color: #f0e68c; text-shadow: 2px 2px 3px #000;')
+            
 
 def stats_left():
     with ui.element('div').classes('relative top-30'):
@@ -71,7 +87,7 @@ def stats_left():
 
 # radio state and button refs
 current = {'value': 'home'}   # default selected
-buttons = {}                    # name -> root element
+buttons = {}                  # name -> root element refs
 
 def press(name: str):
     prev = current['value']
@@ -100,9 +116,7 @@ def settings(): ui.notify("settings")
 
 def button(name: str):
     with ui.element('div').classes('inline-block'):
-        with ui.element('div').classes(
-            'relative w-16 h-16 cursor-pointer'
-        ).on('click', lambda e, n=name: press(n)):
+        with ui.element('div').classes('relative w-16 h-16 cursor-pointer').on('click', lambda e, n=name: press(n)):
             buttonUp = ui.image("/textures/button1.png").classes(
                 'absolute inset-0 w-full h-full object-contain opacity-100'
             )
@@ -133,11 +147,12 @@ def toolbar_right():
         button("settings")
 
 def bottom_right_button():
-    with ui.element('div').classes('relative w-32 h-32 cursor-pointer').style('background-color: #bd9a8e; border-radius: 30%; border: 4px solid #7c5a52;'):
-        ui.image("/textures/swords.png").classes('w-24 h-24 cursor-pointer align-middle absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2').on('click', lambda: ui.notify('Battle button clicked'))
-
-
-zoom = 1.0
+    with ui.element('div').classes('relative w-32 h-32 cursor-pointer').style(
+        'background-color: #bd9a8e; border-radius: 30%; border: 4px solid #7c5a52;'
+    ):
+        ui.image("/textures/swords.png").classes(
+            'w-24 h-24 cursor-pointer align-middle absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2'
+        ).on('click', lambda: ui.notify('Battle button clicked'))
 
 def clamp(v, lo=0.5, hi=2.0):
     return max(lo, min(hi, v))
@@ -149,31 +164,47 @@ def on_wheel(e):
     if canvas:
         canvas.style(f'transform: scale({zoom})')
 
-async def catUI():
-    global cat
-    pattern = [0, 1, 2, 1]
-    catPics = []
-    for x in range(3):
-            catPics.append(spriteCycler(x, 0, 32, "BlackCat/Sittingb.png"))
+async def cyclingSprite(NofSprites, path, name):
+    global cat_idle
+
+    Pics = [spriteCycler(x, 0, 32, path, scale=SPRITE_SCALE) for x in range(3)]
+    
+    frames = []
+    with cat_idle:
+        for pic in Pics:
+            img = ui.image(pic).classes('absolute w-full h-full object-contain')
+            img.set_visibility(False)
+            frames.append(img)
+
+    frames[0].set_visibility(True)
+
     while True:
-        
-        for x in cycle(pattern):
-            cat.set_source(catPics[x])
+        for index in list(range(NofSprites + 1)) + list(range(NofSprites - 1, -1, -1)):
+            for f in frames:
+                f.set_visibility(False)
+            frames[index].set_visibility(True)
             await asyncio.sleep(0.3)
-        if current['value'] != 'home':
-            break
-        
-        
+
+def spriteCycler(x, y, step, name, scale: int = 1):
+    x *= step
+    y *= step
+    img = Image.open(BASE / 'textures' / name).crop((x, y, x + step, y + step))
+    return upscale_nearest(img, scale)    
+
+
 
 def bowlsUI():
-    ui.image(spriteHandler(261, 332, 53, 44, "Furnitures.png")).classes('w-[5vw] object-contain absolute ').style('left:5%;')
-    ui.image(spriteHandler(390, 332, 53, 44, "Furnitures.png")).classes('w-[5vw] object-contain absolute').style('left:40%; top:35%;')
+    # example: also upscale bowls sprites to match pixel style
+    ui.image(spriteHandler(261, 332, 53, 44, "Furnitures.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:5%; width:5vw;')
+    ui.image(spriteHandler(390, 332, 53, 44, "Furnitures.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:40%; top:35%; width:5vw;')
 
 def bedUI():
-    ui.image(spriteHandler(201, 137, 112, 83, "Furnitures.png")).classes('w-[10vw] object-contain')
+    ui.image(spriteHandler(201, 137, 112, 83, "Furnitures.png", scale=SPRITE_SCALE)).classes('w-[10vw] object-contain')
+    
 
 def baseui():
-    with ui.element('div').classes('fixed inset-0 bg-sky-200 overflow-hidden'):
+    global canvas, cat_idle
+    with ui.element('div').classes('fixed inset-0 bg-sky-200 overflow-hidden pixelated'):
         with ui.element('div').classes('absolute left-6 top-6 z-50'):
             hud_top_left()
         with ui.element('div').classes('absolute left-6 top-40 z-50'):
@@ -184,30 +215,30 @@ def baseui():
             bottom_right_button()
 
         room_wrapper = ui.element('div').classes(
-            'absolute inset-0 flex items-center justify-center z-0 pointer-events-none'
-        )
+            'absolute inset-0 flex items-center justify-center z-0 pointer-events-none')
         with room_wrapper:
-            global canvas, cat
-            canvas = ui.element('div').classes(
-                'relative w-[min(50vw,1800px)] aspect-[1/1] bg-transparent pointer-events-auto'
-            ).style('transform-origin: center center; transform: scale(1); transition: transform 80ms ease-out;')
-            
+            canvas = ui.element('div').classes('relative w-[min(50vw,1800px)] aspect-[1/1] bg-transparent pointer-events-auto').style('transform-origin: center center; transform: scale(1); transition: transform 80ms ease-out;')
             canvas.on('wheel', on_wheel)
 
             with canvas:
-                ui.image('/textures/Room.png').classes(
-                    'absolute inset-0 w-full h-full object-contain select-none pointer-events-none'
-                )
+                ui.image('/textures/Room.png').classes('absolute inset-0 w-full h-full object-contain select-none pointer-events-none')
+
+                cat_layer = ui.element('div').classes('absolute inset-0 pointer-events-none').style('z-index: 5;')
+
                 with ui.element('div').classes('absolute inset-0 pointer-events-auto'):
                     ui.element('div').classes('absolute cursor-pointer').style('left: 52%; top: 78%; width: 10%; height: 10%;').on('click', lambda: ui.notify('Food bowl clicked'))
                     ui.element('div').classes('absolute cursor-pointer').style('left: 62%; top: 74%; width: 10%; height: 10%;').on('click', lambda: ui.notify('Water bowl clicked'))
+
                     with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', lambda: ui.notify('Bed clicked')):
                         bedUI()
+
                     with ui.element('div').classes('relative').style('left: 35%; top: 72.5%; width: 20%; height: 10%;').on('click', lambda: ui.notify('bowls clicked')):
                         bowlsUI()
-                    with ui.element('div').classes('relative').style('left: 35%; top: 50%; width: 20%; height: 10%;').on('click', lambda: ui.notify('bowls clicked')):
-                        cat = ui.image(spriteCycler(0, 0, 32, "BlackCat/Sittingb.png")).classes('w-[5vw] h-[5vw] object-contain absolute')
-                        asyncio.create_task(catUI())
+
+                    cat_idle = ui.element('div').classes('absolute').style('left:45%; top:60%; width:12%; aspect-ratio: 1/1; image-rendering: pixelated;')
+                    with cat_idle:
+                        asyncio.create_task(cyclingSprite(2, "BlackCat/SittingB.png", cat_idle))
+                    
 
 def room():
     baseui()
