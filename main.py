@@ -164,20 +164,49 @@ def on_wheel(e):
     if canvas:
         canvas.style(f'transform: scale({zoom})')
 
-async def cyclingSprite(NofSprites, path, name):
-    global cat_idle
+petState = 0                             
+def catPet(coord):
+    global petState
+    if petState == 0:
+        if coord.y > 0.5:
+            petState = 3
+        elif coord.y < -0.5:
+            petState = 1
+    if petState == 1:
+        if coord.y > 0.5:
+            petAnim()
+            petEnd()
+    if petState == 3:
+        if coord.y < -0.5:
+            petState = 1
+            petAnim()
+            petEnd()
+
+def petEnd():
+    global petState # maybe make this async and add delay and put the pet state to like =4 for a sec and then switch back to 0 to stop from triggering petting too much
+    petState = 0
+
+def petAnim():
+    ui.notify("Cat petted!")
+
+
+def makeSprite(NofSprites, path):
+    global frames
 
     Pics = [spriteCycler(x, 0, 32, path, scale=SPRITE_SCALE) for x in range(3)]
     
     frames = []
-    with cat_idle:
-        for pic in Pics:
-            img = ui.image(pic).classes('absolute w-full h-full object-contain')
-            img.set_visibility(False)
-            frames.append(img)
+
+    for pic in Pics:
+        img = ui.image(pic).classes('absolute w-full h-full object-contain')
+        img.set_visibility(False)
+        frames.append(img)
 
     frames[0].set_visibility(True)
+    asyncio.create_task(cyclingSprite(NofSprites))
+    
 
+async def cyclingSprite(NofSprites):
     while True:
         for index in list(range(NofSprites + 1)) + list(range(NofSprites - 1, -1, -1)):
             for f in frames:
@@ -185,10 +214,10 @@ async def cyclingSprite(NofSprites, path, name):
             frames[index].set_visibility(True)
             await asyncio.sleep(0.3)
 
-def spriteCycler(x, y, step, name, scale: int = 1):
+def spriteCycler(x, y, step, path, scale: int = 1):
     x *= step
     y *= step
-    img = Image.open(BASE / 'textures' / name).crop((x, y, x + step, y + step))
+    img = Image.open(BASE / 'textures' / path).crop((x, y, x + step, y + step))
     return upscale_nearest(img, scale)    
 
 
@@ -223,7 +252,7 @@ def baseui():
             with canvas:
                 ui.image('/textures/Room.png').classes('absolute inset-0 w-full h-full object-contain select-none pointer-events-none')
 
-                cat_layer = ui.element('div').classes('absolute inset-0 pointer-events-none').style('z-index: 5;')
+                
 
                 with ui.element('div').classes('absolute inset-0 pointer-events-auto'):
                     ui.element('div').classes('absolute cursor-pointer').style('left: 52%; top: 78%; width: 10%; height: 10%;').on('click', lambda: ui.notify('Food bowl clicked'))
@@ -237,8 +266,10 @@ def baseui():
 
                     cat_idle = ui.element('div').classes('absolute').style('left:45%; top:60%; width:12%; aspect-ratio: 1/1; image-rendering: pixelated;')
                     with cat_idle:
-                        asyncio.create_task(cyclingSprite(2, "BlackCat/SittingB.png", cat_idle))
+                        makeSprite(2, "BlackCat/SittingB.png")
+                        ui.joystick(color='transparent', size=50, on_move=lambda e: catPet(e), on_end=lambda _: petEnd(),).classes('bg-transparent absolute inset-0 w-full h-full cursor-pointer')
                     
+
 
 def room():
     baseui()
