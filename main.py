@@ -12,7 +12,7 @@ cat_layer = None
 canvas = None
 zoom = 1.0
 
-# sprite upscaling factor (NEAREST = crisp pixel art)
+
 SPRITE_SCALE = 4
 
 BASE = pathlib.Path(__file__).parent
@@ -35,6 +35,13 @@ ui.add_head_html("""
     image-rendering: -moz-crisp-edges;
     image-rendering: crisp-edges;
   }
+  .custom-cursor {
+    cursor: url('/static/hand.png') 16 16, auto !important; 
+  }
+  
+  .custom-cursor * {
+    cursor: url('/static/hand.png') 16 16, auto !important; 
+  }
 </style>
 <link rel="stylesheet" href="https://maxst.icons8.com/vue-static/landings/line-awesome/line-awesome/1.3.0/css/line-awesome.min.css">
 """)
@@ -51,6 +58,7 @@ def spriteHandler(xs, ys, xe, ye, name, scale: int = 1):
 
 
 def hud_top_left():
+    global pfp
     with ui.element('div').classes('relative'):
         ui.image("/textures/statusbar.png").classes('w-100 mb-2')
 
@@ -70,6 +78,11 @@ def hud_top_left():
                 'transform: translateY(7px); color: #f0e68c; text-shadow: 2px 2px 3px #000;')
             ui.circular_progress(value =0.5, show_value=False).props('instant-feedback').classes('inline-block ml-2')
             ui.label('50%').classes('inline-block ml-2 text-lg font-bold').style('transform: translateY(7px); color: #f0e68c; text-shadow: 2px 2px 3px #000;')
+        with ui.element('div').classes('absolute left-4 top-8'):
+            changePfp(curCatSkin) 
+            
+def changePfp(skin):
+    ui.image(spriteCycler(0, 0, 32, skin)).classes('w-25 h-25 ')
             
 
 def stats_left():
@@ -85,12 +98,13 @@ def stats_left():
             ui.label('sleep: 100/100')
             ui.label('age: ...')
 
-# radio state and button refs
-current = {'value': 'home'}   # default selected
-buttons = {}                  # name -> root element refs
+
+current = 'home'   
+buttons = {}                  
 
 def press(name: str):
-    prev = current['value']
+    global current, buttons
+    prev = current
     if prev == name:
         return
     p_up, p_dn, p_icon = buttons[prev]
@@ -102,10 +116,9 @@ def press(name: str):
     n_up.classes(remove='opacity-100', add='opacity-0')
     n_dn.classes(remove='opacity-0', add='opacity-100')
     n_icon.style('transform: translate(-50%, -57%) perspective(600px) scaleY(1.02);')
-    current['value'] = name
-    fn = globals().get(name)
-    if callable(fn):
-        fn()
+    current = name
+    globals().get(name)()
+    
 
 def home(): ui.notify("home")
 def shower(): ui.notify("shower")
@@ -115,6 +128,7 @@ def wardrobe(): ui.notify("wardrobe")
 def settings(): ui.notify("settings")
 
 def button(name: str):
+    global current, buttons
     with ui.element('div').classes('inline-block'):
         with ui.element('div').classes('relative w-16 h-16 cursor-pointer').on('click', lambda e, n=name: press(n)):
             buttonUp = ui.image("/textures/button1.png").classes(
@@ -132,7 +146,7 @@ def button(name: str):
                 'transition: transform 90ms;'
             )
             buttons[name] = (buttonUp, buttonDown, icon)
-            if current['value'] == name:
+            if current == name:
                 buttonUp.classes(remove='opacity-100', add='opacity-0')
                 buttonDown.classes(remove='opacity-0', add='opacity-100')
                 icon.style('transform: translate(-50%, -55%) perspective(600px) scaleY(1.02);')
@@ -175,44 +189,56 @@ def catPet(coord):
     if petState == 1:
         if coord.y > 0.5:
             petAnim()
-            petEnd()
+            asyncio.create_task(petEnd())
     if petState == 3:
         if coord.y < -0.5:
             petState = 1
             petAnim()
-            petEnd()
+            asyncio.create_task(petEnd())
 
-def petEnd():
-    global petState # maybe make this async and add delay and put the pet state to like =4 for a sec and then switch back to 0 to stop from triggering petting too much
+async def petEnd():
+    global petState
+    await asyncio.sleep(4) # Wait a second after pet finishes
     petState = 0
+    makeSprite(2, curCatSkin, 0.35)
 
 def petAnim():
     ui.notify("Cat petted!")
+    makeSprite(13, "BlackCat/Idle2Catb.png", 0.15)
+
+anim_task = None
 
 
-def makeSprite(NofSprites, path):
-    global frames
+def makeSprite(NofSprites, path, time):
+    global frames, anim_task, cat_visuals
 
-    Pics = [spriteCycler(x, 0, 32, path, scale=SPRITE_SCALE) for x in range(3)]
+    if anim_task and not anim_task.done():
+        anim_task.cancel()
+    cat_visuals.clear()
+
+    Pics = [spriteCycler(x, 0, 32, path, scale=SPRITE_SCALE) for x in range(NofSprites + 1)]
     
     frames = []
+    with cat_visuals: 
+        for pic in Pics:
+            img = ui.image(pic).classes('absolute w-full h-full object-contain')
+            img.set_visibility(False)
+            frames.append(img)
 
-    for pic in Pics:
-        img = ui.image(pic).classes('absolute w-full h-full object-contain')
-        img.set_visibility(False)
-        frames.append(img)
-
-    frames[0].set_visibility(True)
-    asyncio.create_task(cyclingSprite(NofSprites))
+    if frames:
+        frames[0].set_visibility(True)
+        anim_task = asyncio.create_task(cyclingSprite(NofSprites, time))
     
-
-async def cyclingSprite(NofSprites):
+runIdle = True
+async def cyclingSprite(NofSprites, time):
     while True:
-        for index in list(range(NofSprites + 1)) + list(range(NofSprites - 1, -1, -1)):
+        sequence = list(range(NofSprites + 1)) + list(range(NofSprites - 1, 0, -1))
+        
+        for index in sequence:
             for f in frames:
                 f.set_visibility(False)
-            frames[index].set_visibility(True)
-            await asyncio.sleep(0.3)
+                frames[index].set_visibility(True)
+            await asyncio.sleep(time)
 
 def spriteCycler(x, y, step, path, scale: int = 1):
     x *= step
@@ -232,9 +258,10 @@ def bowlsUI():
 def bedUI():
     ui.image(spriteHandler(201, 137, 112, 83, "Furnitures.png", scale=SPRITE_SCALE)).classes('w-[10vw] object-contain')
     
+curCatSkin = "BlackCat/SittingB.png"
 
 def baseui():
-    global canvas, cat_idle
+    global canvas, cat_idle, curCatSkin, cat_visuals
     with ui.element('div').classes('fixed inset-0 bg-sky-200 overflow-hidden pixelated'):
         with ui.element('div').classes('absolute left-6 top-6 z-50'):
             hud_top_left()
@@ -270,8 +297,14 @@ def baseui():
 
                     cat_idle = ui.element('div').classes('absolute').style('left:45%; top:60%; width:12%; aspect-ratio: 1/1; image-rendering: pixelated;')
                     with cat_idle:
-                        makeSprite(2, "BlackCat/SittingB.png")
-                        ui.joystick(color='transparent', size=50, on_move=lambda e: catPet(e), on_end=lambda _: petEnd(),).classes('bg-transparent absolute inset-0 w-full h-full cursor-pointer')
+                        # 1. Container specifically for images
+                        cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
+                        
+                        # 2. Joystick on top (independent of visuals)
+                        ui.joystick(color='transparent', size=50, on_move=lambda e: catPet(e), on_end=lambda _: asyncio.create_task(petEnd()),).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
+                    
+                    # Initialize the first sprite
+                    makeSprite(2, curCatSkin, 0.35)
                     
 
 
