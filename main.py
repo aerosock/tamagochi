@@ -224,8 +224,10 @@ def spriteCycler(x, y, step, path, scale: int = 1):
 
 def bowlsUI():
     # example: also upscale bowls sprites to match pixel style
-    ui.image(spriteHandler(261, 332, 53, 44, "Furnitures.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:5%; width:5vw;')
-    ui.image(spriteHandler(390, 332, 53, 44, "Furnitures.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:40%; top:35%; width:5vw;')
+    with ui.image(spriteHandler(261, 332, 53, 44, "Furnitures.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:5%; width:5vw;'):
+        ui.element('div').classes('absolute cursor-pointer').style('width: 100%; height: 100%; background: transparent;').on('click', lambda: ui.notify('Food bowl clicked'))
+    with ui.image(spriteHandler(390, 332, 53, 44, "Furnitures.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:40%; top:35%; width:5vw;'):
+        ui.element('div').classes('absolute cursor-pointer').style('width: 100%; height: 100%; background: transparent;').on('click', lambda: ui.notify('Water bowl clicked'))
 
 def bedUI():
     ui.image(spriteHandler(201, 137, 112, 83, "Furnitures.png", scale=SPRITE_SCALE)).classes('w-[10vw] object-contain')
@@ -255,14 +257,16 @@ def baseui():
                 
 
                 with ui.element('div').classes('absolute inset-0 pointer-events-auto'):
-                    ui.element('div').classes('absolute cursor-pointer').style('left: 52%; top: 78%; width: 10%; height: 10%;').on('click', lambda: ui.notify('Food bowl clicked'))
-                    ui.element('div').classes('absolute cursor-pointer').style('left: 62%; top: 74%; width: 10%; height: 10%;').on('click', lambda: ui.notify('Water bowl clicked'))
+                    
+                    
 
                     with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', lambda: ui.notify('Bed clicked')):
                         bedUI()
 
-                    with ui.element('div').classes('relative').style('left: 35%; top: 72.5%; width: 20%; height: 10%;').on('click', lambda: ui.notify('bowls clicked')):
+                    with ui.element('div').classes('relative').style('left: 35%; top: 72.5%; width: 20%; height: 10%;'):
                         bowlsUI()
+                        # ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', lambda: ui.notify('Food bowl clicked'))
+                        # ui.element('div').classes('absolute cursor-pointer').style('left: 52%; top: 44%; width: 20%; height: 18%;').on('click', lambda: ui.notify('Water bowl clicked'))
 
                     cat_idle = ui.element('div').classes('absolute').style('left:45%; top:60%; width:12%; aspect-ratio: 1/1; image-rendering: pixelated;')
                     with cat_idle:
