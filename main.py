@@ -10,17 +10,23 @@ from itertools import cycle
 
 cat_layer = None
 canvas = None
-zoom = 1.0
-SPRITE_SCALE = 4
+cat = None
+
 
 anim_arrays = {}           
 current_anim_task = None   
 current_visible_list = None 
 petState = 0               
 
-posx = 0
-posy = 0
-zoom = 1.0
+
+cam_x = 0.0 
+cam_y = 0.0
+cam_zoom = 1.0
+
+
+cat_x = 50.0 
+cat_y = 55.0
+SPRITE_SCALE = 4
 
 BASE = pathlib.Path(__file__).parent
 app.add_static_files('/static', str(BASE / 'static'))      
@@ -48,6 +54,9 @@ ui.add_head_html("""
   .custom-cursor * {
     cursor: url('/static/hand.png') 16 16, auto !important; 
   }
+  .fade-me {
+    transition: opacity 0.1s;
+  }
 </style>
 <link rel="stylesheet" href="https://maxst.icons8.com/vue-static/landings/line-awesome/line-awesome/1.3.0/css/line-awesome.min.css">
 """)
@@ -58,16 +67,22 @@ def clamp(v, lo=0.5, hi=2.0):
     return max(lo, min(hi, v))
 
 def update_transform():
-    """Applies both current Zoom and Position together."""
-    global zoom, posx, posy, canvas
+    global cam_zoom, cam_x, cam_y, canvas
     if canvas:
-        canvas.style(f'transform: translate({posx}px, {posy}px) scale({zoom})')
+        canvas.style(f'transform: translate({cam_x}%, {cam_y}%) scale({cam_zoom})')
 
 def on_wheel(e):
-    global zoom, canvas
+    global cam_zoom
     dy = e.args.get('deltaY', 0)
-    zoom = clamp(zoom * (0.9 if dy > 0 else 1.1))
+    cam_zoom = clamp(cam_zoom * (0.9 if dy > 0 else 1.1))
     update_transform()
+
+def set_cat_orientation(facing_right: bool):
+    if facing_right:
+        scale_x = 1  
+    else:
+        scale_x=-1
+    cat.style(f'transform: scaleX({scale_x});')
 
 def spriteHandler(xs, ys, xe, ye, name, scale: int = 1):
     img = Image.open(BASE / 'textures' / name).crop((xs, ys, xs + xe, ys + ye))
@@ -83,26 +98,29 @@ def spriteCycler(x, y, step, path, scale: int = 1):
         img = img.resize((img.width * scale, img.height * scale), resample=Image.NEAREST)
     return img
 
+
 def Preload(path, NofSprites, anim_name):
     global anim_arrays
     Pics = [spriteCycler(x, 0, 32, path, scale=SPRITE_SCALE) for x in range(NofSprites + 1)]
     local_frames = []
     for pic in Pics:
-        img = ui.image(pic).classes('absolute w-full h-full object-contain')
-        img.set_visibility(False)
+        img = ui.image(pic).classes('absolute w-full h-full object-contain opacity-0 transition-none')
         local_frames.append(img)
     anim_arrays[anim_name] = local_frames
 
 def doAnim(anim_name, time):
     global current_anim_task, current_visible_list
-    if current_anim_task and not current_anim_task.done():
+    if current_anim_task:
         current_anim_task.cancel()
     if current_visible_list:
-        for f in current_visible_list:
-            f.set_visibility(False)
+        for x in current_visible_list:
+            x.classes(remove='opacity-100', add='opacity-0')
+            
     target_frames = anim_arrays.get(anim_name)
     current_visible_list = target_frames
-    target_frames[0].set_visibility(True) 
+    
+    target_frames[0].classes(remove='opacity-0', add='opacity-100') 
+    
     current_anim_task = asyncio.create_task(cyclingSprite(target_frames, time))
 
 async def cyclingSprite(frames_list, time):
@@ -111,8 +129,8 @@ async def cyclingSprite(frames_list, time):
         sequence = list(range(NofSprites + 1)) + list(range(NofSprites - 1, 0, -1))
         for index in sequence:
             for f in frames_list:
-                f.set_visibility(False)
-            frames_list[index].set_visibility(True)
+                f.classes(remove='opacity-100', add='opacity-0')
+            frames_list[index].classes(remove='opacity-0', add='opacity-100')
             await asyncio.sleep(time)
 
 
@@ -121,16 +139,10 @@ curCatSkin = "BlackCat/SittingB.png"
 def catPet(coord):
     global petState
     if petState == 0:
-        if coord.y > 0.5:
-            petState = 3
-        elif coord.y < -0.5:
-            petState = 1
-    if petState == 1:
-        if coord.y > 0.5:
-            petAnim()
-    if petState == 3:
-        if coord.y < -0.5:
-            petAnim()
+        if coord.y > 0.5: petState = 3
+        elif coord.y < -0.5: petState = 1
+    if petState == 1 and coord.y > 0.5: petAnim()
+    if petState == 3 and coord.y < -0.5: petAnim()
 
 def petAnim():
     global petState
@@ -146,44 +158,79 @@ async def petEnd():
     petState = 0
     doAnim("idle", 0.35)
 
-async def cameraAction(target_x, target_y, target_zoom, speed=2.0):
-    global posx, posy, zoom
-    
-    dist_x = target_x - posx
-    dist_y = target_y - posy
-    dist_z = target_zoom - zoom
-    
-    max_pixel_dist = max(abs(dist_x), abs(dist_y))
-    
 
-    total_steps = int(max(1, max_pixel_dist / speed))
+async def cameraAction(target_x_pct, target_y_pct, target_zoom, speed=2.0):
+
+    global cam_x, cam_y, cam_zoom
+    
+    dist_x = target_x_pct - cam_x
+    dist_y = target_y_pct - cam_y
+    dist_z = target_zoom - cam_zoom
+    
+    max_dist = max(abs(dist_x), abs(dist_y))
+    
+    total_steps = int(max(1, max_dist * speed)) 
         
     inc_x = dist_x / total_steps
     inc_y = dist_y / total_steps
     inc_z = dist_z / total_steps
     
-
-    for step in range(total_steps):
-        posx += inc_x
-        posy += inc_y
-        zoom += inc_z
-        
+    for _ in range(total_steps):
+        cam_x += inc_x
+        cam_y += inc_y
+        cam_zoom += inc_z
         update_transform()
         await asyncio.sleep(0.01)
         
-    posx = target_x
-    posy = target_y
-    zoom = target_zoom
+    cam_x = target_x_pct
+    cam_y = target_y_pct
+    cam_zoom = target_zoom
     update_transform()
 
-def catmove(x, y, speed, invert):
-    global cat
+async def moveCat(target_x_pct, target_y_pct, speed=1.0, run_anim="walk", end_anim="idle"):
+
+    global cat_x, cat_y, cat
     
-    cat.style(f'left:{x}%; top:{y}%; width:12%; aspect-ratio: 1/1; image-rendering: pixelated;')
+    if target_x_pct < cat_x:
+        set_cat_orientation(False)
+    elif target_x_pct > cat_x:
+        set_cat_orientation(True) 
+
+   
+    doAnim(run_anim, 0.15)
+
+    dx = target_x_pct - cat_x
+    dy = target_y_pct - cat_y
+    dist = (dx**2 + dy**2)**0.5
+    
+    if dist == 0: return
+
+
+    step_size = 0.5 * speed
+    steps = int(dist / step_size)
+    
+    if steps > 0:
+        vx = dx / steps
+        vy = dy / steps
+
+        for _ in range(steps):
+            cat_x += vx
+            cat_y += vy
+            if cat:
+                cat.style(f'left:{cat_x}%; top:{cat_y}%;')
+            await asyncio.sleep(0.016) 
+
+    cat_x = target_x_pct
+    cat_y = target_y_pct
+    if cat:
+        cat.style(f'left:{cat_x}%; top:{cat_y}%;')
+
+    doAnim(end_anim, 0.35)
 
 
 def changePfp(skin):
     ui.image(spriteCycler(0, 0, 32, skin, scale=SPRITE_SCALE)).classes('w-25 h-25')
+
 def hud_top_left():
     with ui.element('div').classes('relative'):
         ui.image("/textures/statusbar.png").classes('w-100 mb-2')
@@ -217,13 +264,15 @@ def stats_left():
             ui.label('sleep: 100/100')
             ui.label('age: ...')
 
+
 current = 'home'   
 buttons = {}   
 
 def press(name: str):
     global current, buttons
     prev = current
-    if prev == name: return
+    if prev == name: 
+        return
     p_up, p_dn, p_icon = buttons[prev]
     p_up.classes(remove='opacity-0', add='opacity-100')
     p_dn.classes(remove='opacity-100', add='opacity-0')
@@ -233,19 +282,32 @@ def press(name: str):
     n_dn.classes(remove='opacity-0', add='opacity-100')
     n_icon.style('transform: translate(-50%, -57%) perspective(600px) scaleY(1.02);')
     current = name
-    if globals().get(name): globals().get(name)()
+    globals().get(name)()
 
 
 def home(): 
     ui.notify("home")
-    asyncio.create_task(cameraAction(0, 0, 1.0, speed=7))
+    asyncio.create_task(cameraAction(0, 0, 1.0, speed=2.0))
+    asyncio.create_task(moveCat(50, 55, speed=1.5, run_anim="walk"))
 
-def shower(): ui.notify("shower")
-def sleep(): ui.notify("sleep")
+def shower(): 
+    ui.notify("shower")
+    
+def sleep(): 
+    ui.notify("sleep")
+    asyncio.create_task(cameraAction(-15, -15, 2.0, speed=3.0))
+    asyncio.create_task(moveCat(44, 40, speed=1.5, run_anim="walk"))
+    asyncio.create_task(orientbutasync(0.1, True))
+
+async def orientbutasync(delay, value):
+    asyncio.sleep(delay)
+    set_cat_orientation(value)
+    
 
 def eat(): 
     ui.notify("eat")
-    asyncio.create_task(cameraAction(150, -350, 2.0, speed=5))
+    asyncio.create_task(cameraAction(-15, -25, 2.0, speed=2.0))
+    asyncio.create_task(moveCat(45, 61, speed=1.5, run_anim="walk"))
 
 def wardrobe(): ui.notify("wardrobe")
 def settings(): ui.notify("settings")
@@ -290,7 +352,7 @@ def bedUI():
 
 
 def baseui():
-    global canvas, cat_idle, curCatSkin, cat
+    global canvas, cat, cat_x, cat_y
     with ui.element('div').classes('fixed inset-0 bg-sky-200 overflow-hidden pixelated'):
         with ui.element('div').classes('absolute left-6 top-6 z-50'):
             hud_top_left()
@@ -303,16 +365,24 @@ def baseui():
 
         room_wrapper = ui.element('div').classes('absolute inset-0 flex items-center justify-center z-0 pointer-events-none')
         with room_wrapper:
-            canvas = ui.element('div').classes('relative w-[min(50vw,1800px)] aspect-[1/1] bg-transparent pointer-events-auto').style('transform-origin: center center; transform: scale(1); transition: transform 80ms ease-out;')
+            canvas = ui.element('div').classes('relative w-[min(50vw,1800px)] aspect-[1/1] bg-transparent pointer-events-auto').style('transform-origin: center center; transition: transform 80ms ease-out;')
             canvas.on('wheel', on_wheel)
+            
             with canvas:
                 ui.image('/textures/Room.png').classes('absolute inset-0 w-full h-full object-contain select-none pointer-events-none')
+                
+               
                 with ui.element('div').classes('absolute inset-0 pointer-events-auto'):
+                  
                     with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', lambda: ui.notify('Bed clicked')):
                         bedUI()
+
                     with ui.element('div').classes('relative').style('left: 35%; top: 72.5%; width: 20%; height: 10%;'):
                         bowlsUI()
-                    cat = ui.element('div').classes('absolute').style('left:50%; top:55%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;')
+                    
+                    cat = ui.element('div').classes('absolute').style(
+                        f'left:{cat_x}%; top:{cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;'
+                    )
                     with cat:
                         cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
                         with cat_visuals:
@@ -320,7 +390,9 @@ def baseui():
                             Preload("BlackCat/Idle2Catb.png", 13, "pet")
                             Preload("BlackCat/RunCatb.png", 6, "walk")
                         ui.joystick(color='transparent', size=80, on_move=lambda e: catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
+                    
                     doAnim("idle", 0.35)
+                    update_transform()
 
 def room():
     baseui()
@@ -334,4 +406,5 @@ ui.sub_pages({
     '/other': other,
 })
 
+# ui.run(native=False, on_air="YJ2XhTMREloqgBTF")
 ui.run(native=False)
