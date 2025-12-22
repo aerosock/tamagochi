@@ -282,7 +282,8 @@ def press(name: str):
     n_dn.classes(remove='opacity-0', add='opacity-100')
     n_icon.style('transform: translate(-50%, -57%) perspective(600px) scaleY(1.02);')
     current = name
-    globals().get(name)()
+    if name in globals() and callable(globals()[name]):
+        globals()[name]()
 
 
 def home(): 
@@ -294,20 +295,27 @@ def shower():
     ui.notify("shower")
     
 def sleep(): 
-    ui.notify("sleep")
+    asyncio.create_task(sleepbutasync())
+   
+async def sleepbutasync():
     asyncio.create_task(cameraAction(-15, -15, 2.0, speed=3.0))
-    asyncio.create_task(moveCat(44, 40, speed=1.5, run_anim="walk"))
-    asyncio.create_task(orientbutasync(0.1, True))
+    await asyncio.create_task(moveCat(38, 44, speed=1, run_anim="walk"))
+    set_cat_orientation(True)
+    await asyncio.sleep(0.5)
+    asyncio.create_task(moveCat(53, 34, speed=1.0, run_anim="jump", end_anim="sleep"))
 
-async def orientbutasync(delay, value):
-    asyncio.sleep(delay)
-    set_cat_orientation(value)
     
+readytoeat = False
 
-def eat(): 
+async def eat(): 
+    global readytoeat
     ui.notify("eat")
-    asyncio.create_task(cameraAction(-15, -25, 2.0, speed=2.0))
-    asyncio.create_task(moveCat(45, 61, speed=1.5, run_anim="walk"))
+    readytoeat = True
+    await asyncio.gather(
+        cameraAction(-15, -25, 2.0, speed=2.0),
+        moveCat(45, 61, speed=1.5, run_anim="walk")
+    )
+    
 
 def wardrobe(): ui.notify("wardrobe")
 def settings(): ui.notify("settings")
@@ -341,18 +349,53 @@ def bottom_right_button():
     with ui.element('div').classes('relative w-32 h-32 cursor-pointer').style('background-color: #bd9a8e; border-radius: 30%; border: 4px solid #7c5a52;'):
         ui.image("/textures/swords.png").classes('w-24 h-24 cursor-pointer align-middle absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2').on('click', lambda: ui.notify('Battle button clicked'))
 
+async def foodbowl():
+    global readytoeat
+    ui.notify("Food bowl clicked")
+    if not readytoeat:
+        await eat()
+        return
+    ui.navigate.to('/feed')
+
+def waterbowl():
+    ui.notify("Water bowl clicked")
+
 def bowlsUI():
     with ui.image(spriteHandler(261, 332, 53, 44, "Furnitures.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:5%; width:5vw;'):
-        ui.element('div').classes('absolute cursor-pointer').style('width: 100%; height: 100%; background: transparent;').on('click', lambda: ui.notify('Food bowl clicked'))
+        ui.element('div').classes('absolute cursor-pointer w-full h-full bg-transparent').on('click', foodbowl)
     with ui.image(spriteHandler(390, 332, 53, 44, "Furnitures.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:40%; top:35%; width:5vw;'):
-        ui.element('div').classes('absolute cursor-pointer').style('width: 100%; height: 100%; background: transparent;').on('click', lambda: ui.notify('Water bowl clicked'))
+        ui.element('div').classes('absolute cursor-pointer w-full h-full bg-transparent').on('click', waterbowl)
 
 def bedUI():
     ui.image(spriteHandler(201, 137, 112, 83, "Furnitures.png", scale=SPRITE_SCALE)).classes('w-[10vw] object-contain')
 
+def room_content():
+    global canvas, cat, cat_x, cat_y
+     
+    with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', lambda: ui.notify('Bed clicked')):
+        bedUI()
+
+    with ui.element('div').classes('relative').style('left: 35%; top: 72.5%; width: 20%; height: 10%;'):
+        bowlsUI()
+    
+    cat = ui.element('div').classes('absolute').style(
+        f'left:{cat_x}%; top:{cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;'
+    )
+    with cat:
+        cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
+        with cat_visuals:
+            Preload(curCatSkin, 2, "idle")
+            Preload("BlackCat/Idle2Catb.png", 13, "pet")
+            Preload("BlackCat/RunCatb.png", 6, "walk")
+            Preload("BlackCat/JumpCatb.png", 12, "jump")
+            Preload("BlackCat/SleepCatb.png", 2, "sleep")
+        ui.joystick(color='transparent', size=80, on_move=lambda e: catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
+    
+    doAnim("idle", 0.35)
+    update_transform()
 
 def baseui():
-    global canvas, cat, cat_x, cat_y
+    global canvas
     with ui.element('div').classes('fixed inset-0 bg-sky-200 overflow-hidden pixelated'):
         with ui.element('div').classes('absolute left-6 top-6 z-50'):
             hud_top_left()
@@ -362,7 +405,6 @@ def baseui():
             toolbar_right()
         with ui.element('div').classes('absolute right-8 bottom-8 z-50'):
             bottom_right_button()
-
         room_wrapper = ui.element('div').classes('absolute inset-0 flex items-center justify-center z-0 pointer-events-none')
         with room_wrapper:
             canvas = ui.element('div').classes('relative w-[min(50vw,1800px)] aspect-[1/1] bg-transparent pointer-events-auto').style('transform-origin: center center; transition: transform 80ms ease-out;')
@@ -371,28 +413,9 @@ def baseui():
             with canvas:
                 ui.image('/textures/Room.png').classes('absolute inset-0 w-full h-full object-contain select-none pointer-events-none')
                 
-               
                 with ui.element('div').classes('absolute inset-0 pointer-events-auto'):
-                  
-                    with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', lambda: ui.notify('Bed clicked')):
-                        bedUI()
-
-                    with ui.element('div').classes('relative').style('left: 35%; top: 72.5%; width: 20%; height: 10%;'):
-                        bowlsUI()
-                    
-                    cat = ui.element('div').classes('absolute').style(
-                        f'left:{cat_x}%; top:{cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;'
-                    )
-                    with cat:
-                        cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
-                        with cat_visuals:
-                            Preload(curCatSkin, 2, "idle")
-                            Preload("BlackCat/Idle2Catb.png", 13, "pet")
-                            Preload("BlackCat/RunCatb.png", 6, "walk")
-                        ui.joystick(color='transparent', size=80, on_move=lambda e: catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
-                    
-                    doAnim("idle", 0.35)
-                    update_transform()
+                    room_content()
+        
 
 def room():
     baseui()
@@ -400,11 +423,18 @@ def room():
 def other():
     ui.label('Other page')
 
+def feed():
+    pass
+
+def bath():
+    pass
+    
+
 ui.sub_pages({
     '/': room,
-    '/room': room,
+    '/feed': feed,
     '/other': other,
+    '/bath': bath,
 })
 
-# ui.run(native=False, on_air="YJ2XhTMREloqgBTF")
 ui.run(native=False)
