@@ -11,13 +11,15 @@ from itertools import cycle
 cat_layer = None
 canvas = None
 cat = None
+cat_joystick = None 
+pet_timeout_task = None
 
 
 anim_arrays = {}           
 current_anim_task = None   
 current_visible_list = None 
 petState = 0               
-
+currentroom = 'home'
 
 cam_x = 0.0 
 cam_y = 0.0
@@ -51,11 +53,20 @@ ui.add_head_html("""
   .custom-cursor {
     cursor: url('/static/hand.png') 16 16, auto !important; 
   }
-  .custom-cursor * {
-    cursor: url('/static/hand.png') 16 16, auto !important; 
-  }
   .fade-me {
     transition: opacity 0.1s;
+  }
+  .showerhandle1{
+      cursor: url('/static/showerhandle1.png') 32 32, auto !important;
+  }
+  .showerhandle2{
+      cursor: url('/static/showerhandle2.png') 32 32, auto !important;
+  }
+  .showerhandle3{
+      cursor: url('/static/showerhandle3.png') 32 32, auto !important;
+  }
+  .showerhandle4{
+      cursor: url('/static/showerhandle4.png') 32 32, auto !important;
   }
 </style>
 <link rel="stylesheet" href="https://maxst.icons8.com/vue-static/landings/line-awesome/line-awesome/1.3.0/css/line-awesome.min.css">
@@ -90,31 +101,31 @@ def spriteHandler(xs, ys, xe, ye, name, scale: int = 1):
         img = img.resize((img.width * scale, img.height * scale), resample=Image.NEAREST)
     return img
 
-def spriteCycler(x, y, step, path, scale: int = 1):
+def spriteCycler(x, y, step, path, scale: int = 1, ystep=32):
     x *= step
-    y *= step
-    img = Image.open(BASE / 'textures' / path).crop((x, y, x + step, y + step))
+    y *= ystep
+    img = Image.open(BASE / 'textures' / path).crop((x, y, x + step, y + ystep))
     if scale > 1:
         img = img.resize((img.width * scale, img.height * scale), resample=Image.NEAREST)
     return img
 
 
-def Preload(path, NofSprites, anim_name):
+def Preload(path, NofSprites, anim_name, step=32, ystep=32):
     global anim_arrays
-    Pics = [spriteCycler(x, 0, 32, path, scale=SPRITE_SCALE) for x in range(NofSprites + 1)]
+    Pics = [spriteCycler(x, 0, step, path, scale=SPRITE_SCALE, ystep=ystep) for x in range(NofSprites + 1)]
     local_frames = []
     for pic in Pics:
         img = ui.image(pic).classes('absolute w-full h-full object-contain opacity-0 transition-none')
         local_frames.append(img)
     anim_arrays[anim_name] = local_frames
 
-def doAnim(anim_name, time):
+def doAnim(anim_name, time, cancel_current=True):
     global current_anim_task, current_visible_list
-    if current_anim_task:
+    if current_anim_task and cancel_current:
         current_anim_task.cancel()
-    if current_visible_list:
-        for x in current_visible_list:
-            x.classes(remove='opacity-100', add='opacity-0')
+        if current_visible_list:
+            for x in current_visible_list:
+                x.classes(remove='opacity-100', add='opacity-0')
             
     target_frames = anim_arrays.get(anim_name)
     current_visible_list = target_frames
@@ -137,25 +148,58 @@ async def cyclingSprite(frames_list, time):
 curCatSkin = "BlackCat/SittingB.png"
 
 def catPet(coord):
-    global petState
-    if petState == 0:
-        if coord.y > 0.5: petState = 3
-        elif coord.y < -0.5: petState = 1
-    if petState == 1 and coord.y > 0.5: petAnim()
-    if petState == 3 and coord.y < -0.5: petAnim()
+    global petState, currentroom
 
-def petAnim():
-    global petState
-    if petState == 2: return 
-    petState = 2
-    ui.notify("Cat petted!")
-    doAnim("pet", 0.15)
-    asyncio.create_task(petEnd())
+    if petState == 2:
+        anim_name = "pet"
+        if currentroom == 'bath' and water == True:
+            anim_name = "shower"
+        
+        petAnim(anim_name)
+        return
+
+    if currentroom == 'home':
+        if petState == 0:
+            if coord.y > 0.5: 
+                petState = 3
+            elif coord.y < -0.5: 
+                petState = 1
+        if petState == 1 and coord.y > 0.5: 
+            petAnim()
+        if petState == 3 and coord.y < -0.5: 
+            petAnim()
+            
+    if currentroom == 'bath' and water == True:
+        if petState == 0:
+            if coord.y > 0.5: 
+                petState = 3
+            elif coord.y < -0.5: 
+                petState = 1
+        if petState == 1 and coord.y > 0.5: 
+            petAnim("shower")
+        if petState == 3 and coord.y < -0.5:
+            petAnim("shower")
+
+def petAnim(anim_name="pet"):
+    global petState, pet_timeout_task
+    
+    if pet_timeout_task:
+        pet_timeout_task.cancel()
+        pet_timeout_task = None
+
+    if petState != 2:
+        petState = 2
+        ui.notify("Cat petted!")
+        doAnim(anim_name, 0.15)
+
+    pet_timeout_task = asyncio.create_task(petEnd())
 
 async def petEnd():
-    global petState
-    await asyncio.sleep(4) 
+    global petState, pet_timeout_task
+    
+    await asyncio.sleep(0.2) 
     petState = 0
+    pet_timeout_task = None
     doAnim("idle", 0.35)
 
 
@@ -287,12 +331,22 @@ def press(name: str):
 
 
 def home(): 
+    global currentroom
+    if currentroom != 'home':
+        ui.navigate.to('/')
+        currentroom = 'home'
     ui.notify("home")
     asyncio.create_task(cameraAction(0, 0, 1.0, speed=2.0))
-    asyncio.create_task(moveCat(50, 55, speed=1.5, run_anim="walk"))
+    if cat_x != 50 or cat_y != 55:
+        asyncio.create_task(moveCat(50, 55, speed=1.5, run_anim="walk"))
+    
+
+
 
 def shower(): 
-    ui.notify("shower")
+    global currentroom
+    ui.navigate.to('/bath')
+    currentroom = 'bath'
     
 def sleep(): 
     asyncio.create_task(sleepbutasync())
@@ -369,6 +423,15 @@ def bowlsUI():
 def bedUI():
     ui.image(spriteHandler(201, 137, 112, 83, "Furnitures.png", scale=SPRITE_SCALE)).classes('w-[10vw] object-contain')
 
+async def cycleclasses():
+    global water, catjoy
+    classes = ['showerhandle1', 'showerhandle2', 'showerhandle3', 'showerhandle4']
+    idx = 0
+    while (water == True):
+        catjoy.classes(remove=classes[(idx -1) % len(classes)], add=classes[idx % len(classes)])
+        idx += 1
+        await asyncio.sleep(0.2)
+
 def room_content():
     global canvas, cat, cat_x, cat_y
      
@@ -394,8 +457,8 @@ def room_content():
     doAnim("idle", 0.35)
     update_transform()
 
-def baseui():
-    global canvas
+def baseui(room_texture='Room.png'):
+    global canvas, room
     with ui.element('div').classes('fixed inset-0 bg-sky-200 overflow-hidden pixelated'):
         with ui.element('div').classes('absolute left-6 top-6 z-50'):
             hud_top_left()
@@ -411,14 +474,68 @@ def baseui():
             canvas.on('wheel', on_wheel)
             
             with canvas:
-                ui.image('/textures/Room.png').classes('absolute inset-0 w-full h-full object-contain select-none pointer-events-none')
+                ui.image(f'/textures/{room_texture}').classes('absolute inset-0 w-full h-full object-contain select-none pointer-events-none')
                 
-                with ui.element('div').classes('absolute inset-0 pointer-events-auto'):
-                    room_content()
+                room = ui.element('div').classes('absolute inset-0 pointer-events-auto')
+
+def showerui():
+    pass
+    
+
+
+def bathui():
+    global canvas, room, cat, cat_x, cat_y, water, catjoy
+    with room:
+        with ui.element('div').classes('relative').style('left: 20.5%; top: 31.9%; width: 11.1%; height: 33.3%; transform: rotate(-1deg);').on('click', lambda: showerhelp()):
+            ui.image(spriteHandler(0, 0, 64, 192, "showersprite.png", scale=SPRITE_SCALE)).classes('object-contain absolute')
+            Preload("realshower.png", 3, "showering", 64, 192)
         
+        cat = ui.element('div').classes('absolute').style(f'left:{cat_x}%; top:{cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;')
+        with cat:
+            cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
+            with cat_visuals:
+                Preload(curCatSkin, 2, "idle")
+                Preload("BlackCat/shower.png", 3, "shower")
+            catjoy = ui.joystick(color='transparent', size=80, on_move=lambda e: catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
+        doAnim("idle", 0.35)
+        update_transform()
+
+shower_task = None
+
+def showerhelp():
+    global water, shower_task, catjoy
+    
+    frames = anim_arrays.get("showering")
+
+    if water == False:
+        water = True
+        ui.notify("Cat is now showering!")
+        
+        asyncio.create_task(cycleclasses())
+
+        if frames:
+            frames[0].classes(remove='opacity-0', add='opacity-100')
+            shower_task = asyncio.create_task(cyclingSprite(frames, 0.2))
+            
+    else:
+        water = False
+        ui.notify("Cat stopped showering!")
+        catjoy.classes(remove=['showerhandle1', 'showerhandle2', 'showerhandle3', 'showerhandle4'])      
+        if shower_task:
+            shower_task.cancel()
+            shower_task = None
+        if frames:
+            for f in frames:
+                f.classes(remove='opacity-100', add='opacity-0')
 
 def room():
-    baseui()
+    global currentroom, anim_arrays
+    currentroom = 'home'      
+    anim_arrays = {}          
+    
+    baseui('Room.png')
+    with room:
+        room_content()
 
 def other():
     ui.label('Other page')
@@ -427,7 +544,15 @@ def feed():
     pass
 
 def bath():
-    pass
+    global currentroom, anim_arrays, water
+    currentroom = 'bath'      
+    anim_arrays = {}           
+    water = False
+    
+    baseui('emptyshower.png')
+    with room:
+        bathui()
+    
     
 
 ui.sub_pages({
