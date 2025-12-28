@@ -8,12 +8,13 @@ import pathlib
 import asyncio
 from itertools import cycle
 
+# --- Globals ---
 cat_layer = None
 canvas = None
 cat = None
 cat_joystick = None 
+cat_visuals = None
 pet_timeout_task = None
-
 
 anim_arrays = {}           
 current_anim_task = None   
@@ -25,7 +26,6 @@ cam_x = 0.0
 cam_y = 0.0
 cam_zoom = 1.0
 
-
 cat_x = 50.0 
 cat_y = 55.0
 SPRITE_SCALE = 4
@@ -36,43 +36,60 @@ app.add_static_files('/textures', str(BASE / 'textures'))
 
 ui.add_head_html("""
 <style>
-  @font-face {
-    font-family: 'runescape';
-    src: url('/static/runescape.ttf') format('truetype');
-  }
-  html, body {
-    margin: 0; padding: 0; width: 100%; height: 100%;
-    font-family: 'runescape', sans-serif;
-    font-size: 16px;
-  }
-  .pixelated {
-    image-rendering: pixelated;
-    image-rendering: -moz-crisp-edges;
-    image-rendering: crisp-edges;
-  }
-  .custom-cursor {
-    cursor: url('/static/hand.png') 16 16, auto !important; 
-  }
-  .fade-me {
-    transition: opacity 0.1s;
-  }
-  .showerhandle1{
-      cursor: url('/static/showerhandle1.png') 32 32, auto !important;
-  }
-  .showerhandle2{
-      cursor: url('/static/showerhandle2.png') 32 32, auto !important;
-  }
-  .showerhandle3{
-      cursor: url('/static/showerhandle3.png') 32 32, auto !important;
-  }
-  .showerhandle4{
-      cursor: url('/static/showerhandle4.png') 32 32, auto !important;
-  }
+  @font-face { font-family: 'runescape'; src: url('/static/runescape.ttf') format('truetype'); }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'runescape', sans-serif; font-size: 16px; }
+  .pixelated { image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges; }
+  .custom-cursor { cursor: url('/static/hand.png') 16 16, auto !important; }
+  .fade-me { transition: opacity 0.1s; }
+  .showerhandle1{ cursor: url('/static/showerhandle1.png') 32 32, auto !important; }
+  .showerhandle2{ cursor: url('/static/showerhandle2.png') 32 32, auto !important; }
+  .showerhandle3{ cursor: url('/static/showerhandle3.png') 32 32, auto !important; }
+  .showerhandle4{ cursor: url('/static/showerhandle4.png') 32 32, auto !important; }
 </style>
-<link rel="stylesheet" href="https://maxst.icons8.com/vue-static/landings/line-awesome/line-awesome/1.3.0/css/line-awesome.min.css">
+
+<script>
+  window.catVisualsId = null;
+  window.isTracking = true; 
+
+  window.startCatTracking = (elementId) => {
+    const checkElement = () => {
+        // NiceGUI IDs usually start with 'c', but we check strictly first
+        let el = document.getElementById(elementId);
+        
+        if (el) {
+            console.log("Cat found via ID " + elementId + "! Starting tracking.");
+            window.catVisualsId = elementId;
+        } else {
+            // Debugging log to see what it's looking for
+            // console.log("Searching for element:", elementId);
+            setTimeout(checkElement, 50);
+        }
+    };
+    checkElement();
+  };
+
+  window.setTracking = (state) => {
+    window.isTracking = state;
+  };
+
+  document.addEventListener('mousemove', (e) => {
+    if (!window.catVisualsId || !window.isTracking) return;
+    
+    const element = document.getElementById(window.catVisualsId);
+    if (!element) return;
+
+    const rect = element.getBoundingClientRect();
+    const catCenterX = rect.left + (rect.width / 2);
+
+    // Apply Flip
+    if (e.clientX > catCenterX) {
+        element.style.transform = 'scaleX(1)';
+    } else {
+        element.style.transform = 'scaleX(-1)';
+    }
+  });
+</script>
 """)
-
-
 
 def clamp(v, lo=0.5, hi=2.0):
     return max(lo, min(hi, v))
@@ -89,11 +106,11 @@ def on_wheel(e):
     update_transform()
 
 def set_cat_orientation(facing_right: bool):
-    if facing_right:
-        scale_x = 1  
-    else:
-        scale_x=-1
-    cat.style(f'transform: scaleX({scale_x});')
+    global cat_visuals
+    scale_x = 1 if facing_right else -1
+    
+    if cat_visuals:
+        cat_visuals.style(f'transform: scaleX({scale_x});')
 
 def spriteHandler(xs, ys, xe, ye, name, scale: int = 1):
     img = Image.open(BASE / 'textures' / name).crop((xs, ys, xs + xe, ys + ye))
@@ -108,7 +125,6 @@ def spriteCycler(x, y, step, path, scale: int = 1, ystep=32):
     if scale > 1:
         img = img.resize((img.width * scale, img.height * scale), resample=Image.NEAREST)
     return img
-
 
 def Preload(path, NofSprites, anim_name, step=32, ystep=32):
     global anim_arrays
@@ -130,9 +146,9 @@ def doAnim(anim_name, time, cancel_current=True):
     target_frames = anim_arrays.get(anim_name)
     current_visible_list = target_frames
     
-    target_frames[0].classes(remove='opacity-0', add='opacity-100') 
-    
-    current_anim_task = asyncio.create_task(cyclingSprite(target_frames, time))
+    if target_frames:
+        target_frames[0].classes(remove='opacity-0', add='opacity-100') 
+        current_anim_task = asyncio.create_task(cyclingSprite(target_frames, time))
 
 async def cyclingSprite(frames_list, time):
     NofSprites = len(frames_list) - 1
@@ -143,7 +159,6 @@ async def cyclingSprite(frames_list, time):
                 f.classes(remove='opacity-100', add='opacity-0')
             frames_list[index].classes(remove='opacity-0', add='opacity-100')
             await asyncio.sleep(time)
-
 
 curCatSkin = "BlackCat/SittingB.png"
 
@@ -202,9 +217,7 @@ async def petEnd():
     pet_timeout_task = None
     doAnim("idle", 0.35)
 
-
 async def cameraAction(target_x_pct, target_y_pct, target_zoom, speed=2.0):
-
     global cam_x, cam_y, cam_zoom
     
     dist_x = target_x_pct - cam_x
@@ -231,38 +244,34 @@ async def cameraAction(target_x_pct, target_y_pct, target_zoom, speed=2.0):
     cam_zoom = target_zoom
     update_transform()
 
-async def moveCat(target_x_pct, target_y_pct, speed=1.0, run_anim="walk", end_anim="idle"):
-
+async def moveCat(target_x_pct, target_y_pct, speed=1.0, run_anim="walk", end_anim="idle", restore_tracking=True):
     global cat_x, cat_y, cat
-    
+
+    ui.run_javascript('window.setTracking(false)')
+
     if target_x_pct < cat_x:
         set_cat_orientation(False)
     elif target_x_pct > cat_x:
         set_cat_orientation(True) 
 
-   
     doAnim(run_anim, 0.15)
 
     dx = target_x_pct - cat_x
     dy = target_y_pct - cat_y
     dist = (dx**2 + dy**2)**0.5
     
-    if dist == 0: return
-
-
-    step_size = 0.5 * speed
-    steps = int(dist / step_size)
-    
-    if steps > 0:
-        vx = dx / steps
-        vy = dy / steps
-
-        for _ in range(steps):
-            cat_x += vx
-            cat_y += vy
-            if cat:
-                cat.style(f'left:{cat_x}%; top:{cat_y}%;')
-            await asyncio.sleep(0.016) 
+    if dist > 0:
+        step_size = 0.5 * speed
+        steps = int(dist / step_size)
+        if steps > 0:
+            vx = dx / steps
+            vy = dy / steps
+            for _ in range(steps):
+                cat_x += vx
+                cat_y += vy
+                if cat:
+                    cat.style(f'left:{cat_x}%; top:{cat_y}%;')
+                await asyncio.sleep(0.016) 
 
     cat_x = target_x_pct
     cat_y = target_y_pct
@@ -270,7 +279,9 @@ async def moveCat(target_x_pct, target_y_pct, speed=1.0, run_anim="walk", end_an
         cat.style(f'left:{cat_x}%; top:{cat_y}%;')
 
     doAnim(end_anim, 0.35)
-
+    
+    if restore_tracking:
+        ui.run_javascript('window.setTracking(true)')
 
 def changePfp(skin):
     ui.image(spriteCycler(0, 0, 32, skin, scale=SPRITE_SCALE)).classes('w-25 h-25')
@@ -330,7 +341,7 @@ def press(name: str):
         globals()[name]()
 
 
-def home(): 
+def home():
     global currentroom
     if currentroom != 'home':
         ui.navigate.to('/')
@@ -339,9 +350,6 @@ def home():
     asyncio.create_task(cameraAction(0, 0, 1.0, speed=2.0))
     if cat_x != 50 or cat_y != 55:
         asyncio.create_task(moveCat(50, 55, speed=1.5, run_anim="walk"))
-    
-
-
 
 def shower(): 
     global currentroom
@@ -349,14 +357,20 @@ def shower():
     currentroom = 'bath'
     
 def sleep(): 
+    global currentroom
+    if currentroom != 'home':
+        ui.navigate.to('/')
+        currentroom = 'home'
     asyncio.create_task(sleepbutasync())
    
+
 async def sleepbutasync():
+    ui.run_javascript('window.setTracking(false)')
     asyncio.create_task(cameraAction(-15, -15, 2.0, speed=3.0))
-    await asyncio.create_task(moveCat(38, 44, speed=1, run_anim="walk"))
+    await moveCat(38, 44, speed=1, run_anim="walk", restore_tracking=False)
     set_cat_orientation(True)
     await asyncio.sleep(0.5)
-    asyncio.create_task(moveCat(53, 34, speed=1.0, run_anim="jump", end_anim="sleep"))
+    await moveCat(53, 34, speed=1.0, run_anim="jump", end_anim="sleep", restore_tracking=False)
 
     
 readytoeat = False
@@ -433,7 +447,7 @@ async def cycleclasses():
         await asyncio.sleep(0.2)
 
 def room_content():
-    global canvas, cat, cat_x, cat_y
+    global canvas, cat, cat_x, cat_y, cat_visuals
      
     with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', lambda: ui.notify('Bed clicked')):
         bedUI()
@@ -445,6 +459,7 @@ def room_content():
         f'left:{cat_x}%; top:{cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;'
     )
     with cat:
+
         cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
         with cat_visuals:
             Preload(curCatSkin, 2, "idle")
@@ -456,6 +471,8 @@ def room_content():
     
     doAnim("idle", 0.35)
     update_transform()
+    
+    ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")')
 
 def baseui(room_texture='Room.png'):
     global canvas, room
@@ -481,10 +498,8 @@ def baseui(room_texture='Room.png'):
 def showerui():
     pass
     
-
-
 def bathui():
-    global canvas, room, cat, cat_x, cat_y, water, catjoy
+    global canvas, room, cat, cat_x, cat_y, water, catjoy, cat_visuals
     with room:
         with ui.element('div').classes('relative').style('left: 20.5%; top: 31.9%; width: 11.1%; height: 33.3%; transform: rotate(-1deg);').on('click', lambda: showerhelp()):
             ui.image(spriteHandler(0, 0, 64, 192, "showersprite.png", scale=SPRITE_SCALE)).classes('object-contain absolute')
@@ -497,38 +512,46 @@ def bathui():
                 Preload(curCatSkin, 2, "idle")
                 Preload("BlackCat/shower.png", 3, "shower")
             catjoy = ui.joystick(color='transparent', size=80, on_move=lambda e: catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
+        
         doAnim("idle", 0.35)
         update_transform()
+        
+        ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")')
 
 shower_task = None
 
 def showerhelp():
     global water, shower_task, catjoy
-    
+    print(water)
     frames = anim_arrays.get("showering")
 
     if water == False:
         water = True
         ui.notify("Cat is now showering!")
-        
+      
         asyncio.create_task(cycleclasses())
 
-        if frames:
-            frames[0].classes(remove='opacity-0', add='opacity-100')
-            shower_task = asyncio.create_task(cyclingSprite(frames, 0.2))
+        if shower_task:
+            shower_task.cancel()
+        
+        frames[0].classes(remove='opacity-0', add='opacity-100')
+        shower_task = asyncio.create_task(cyclingSprite(frames, 0.2))
             
     else:
         water = False
         ui.notify("Cat stopped showering!")
-        catjoy.classes(remove=['showerhandle1', 'showerhandle2', 'showerhandle3', 'showerhandle4'])      
+ 
+        catjoy.classes(remove='showerhandle1 showerhandle2 showerhandle3 showerhandle4')
+        
+        print("near for cycle")
         if shower_task:
             shower_task.cancel()
             shower_task = None
-        if frames:
-            for f in frames:
-                f.classes(remove='opacity-100', add='opacity-0')
+        
+        for f in frames:
+            f.classes(remove='opacity-100', add='opacity-0')
 
-def room():
+def room_page():
     global currentroom, anim_arrays
     currentroom = 'home'      
     anim_arrays = {}          
@@ -543,7 +566,7 @@ def other():
 def feed():
     pass
 
-def bath():
+def bath_page():
     global currentroom, anim_arrays, water
     currentroom = 'bath'      
     anim_arrays = {}           
@@ -556,10 +579,11 @@ def bath():
     
 
 ui.sub_pages({
-    '/': room,
+    '/': room_page,
     '/feed': feed,
     '/other': other,
-    '/bath': bath,
+    '/bath': bath_page,
 })
 
-ui.run(native=False)
+if __name__ in {"__main__", "__mp_main__"}:
+    ui.run(native=False)
