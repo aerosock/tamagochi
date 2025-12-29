@@ -347,21 +347,35 @@ def home():
         ui.navigate.to('/')
         currentroom = 'home'
     ui.notify("home")
-    asyncio.create_task(cameraAction(0, 0, 1.0, speed=2.0))
-    if cat_x != 50 or cat_y != 55:
-        asyncio.create_task(moveCat(50, 55, speed=1.5, run_anim="walk"))
+    client = ui.context.client
+
+    async def safe_home_task():
+        with client:
+            await cameraAction(0, 0, 1.0, speed=2.0)
+            if cat_x != 50 or cat_y != 55:
+                await moveCat(50, 55, speed=1.5, run_anim="walk")
+
+    asyncio.create_task(safe_home_task())
 
 def shower(): 
     global currentroom
     ui.navigate.to('/bath')
     currentroom = 'bath'
+    asyncio.create_task(cameraAction(0, 0, 1.0, speed=2.0))
+    if cat_x != 50 or cat_y != 55:
+        asyncio.create_task(moveCat(50, 55, speed=1.5, run_anim="walk"))
     
 def sleep(): 
     global currentroom
     if currentroom != 'home':
         ui.navigate.to('/')
         currentroom = 'home'
-    asyncio.create_task(sleepbutasync())
+    client = ui.context.client
+
+    async def safe_sleep_task():
+        with client:
+            await sleepbutasync()
+    asyncio.create_task(safe_sleep_task())
    
 
 async def sleepbutasync():
@@ -375,14 +389,18 @@ async def sleepbutasync():
     
 readytoeat = False
 
-async def eat(): 
+def eat(): 
+    asyncio.create_task(eatasync())
+    
+async def eatasync():
     global readytoeat
     ui.notify("eat")
     readytoeat = True
     await asyncio.gather(
-        cameraAction(-15, -25, 2.0, speed=2.0),
-        moveCat(45, 61, speed=1.5, run_anim="walk")
-    )
+    cameraAction(-15, -25, 2.0, speed=2.0),
+    moveCat(45, 61, speed=1.5, run_anim="walk"))
+    ui.navigate.to('/food')
+   
     
 
 def wardrobe(): ui.notify("wardrobe")
@@ -474,9 +492,9 @@ def room_content():
     
     ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")')
 
-def baseui(room_texture='Room.png'):
+def baseui(room_texture='Room.png', bg='bg-blue-200'):
     global canvas, room
-    with ui.element('div').classes('fixed inset-0 bg-sky-200 overflow-hidden pixelated'):
+    with ui.element('div').classes(f'fixed inset-0 {bg} overflow-hidden pixelated'):
         with ui.element('div').classes('absolute left-6 top-6 z-50'):
             hud_top_left()
         with ui.element('div').classes('absolute left-6 top-40 z-50'):
@@ -559,12 +577,21 @@ def room_page():
     baseui('Room.png')
     with room:
         room_content()
+        
+def food_page():
+    global currentroom, anim_arrays
+    currentroom = 'food'      
+    anim_arrays = {}
+    baseui('bigbowl.png', 'bg-tan-200')
+    with room:
+        foodui()
+
+def foodui():
+    pass
 
 def other():
     ui.label('Other page')
 
-def feed():
-    pass
 
 def bath_page():
     global currentroom, anim_arrays, water
@@ -580,9 +607,9 @@ def bath_page():
 
 ui.sub_pages({
     '/': room_page,
-    '/feed': feed,
     '/other': other,
     '/bath': bath_page,
+    '/food': food_page
 })
 
 if __name__ in {"__main__", "__mp_main__"}:
