@@ -7,8 +7,9 @@ from PIL import Image
 import pathlib
 import asyncio
 from itertools import cycle
+import random
 
-# --- Globals ---
+evading = None
 cat_layer = None
 canvas = None
 cat = None
@@ -27,8 +28,9 @@ cam_y = 0.0
 cam_zoom = 1.0
 
 cat_x = 50.0 
-cat_y = 55.0
+cat_y = 55.0    
 SPRITE_SCALE = 4
+pos = 55
 
 BASE = pathlib.Path(__file__).parent
 app.add_static_files('/static', str(BASE / 'static'))      
@@ -36,6 +38,12 @@ app.add_static_files('/textures', str(BASE / 'textures'))
 
 ui.add_head_html("""
 <style>
+  img {
+  user-select: none;
+  -webkit-user-select: none;
+  user-drag: none; 
+  -webkit-user-drag: none;
+  }
   @font-face { font-family: 'runescape'; src: url('/static/runescape.ttf') format('truetype'); }
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'runescape', sans-serif; font-size: 16px; }
   .pixelated { image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges; }
@@ -53,15 +61,11 @@ ui.add_head_html("""
 
   window.startCatTracking = (elementId) => {
     const checkElement = () => {
-        // NiceGUI IDs usually start with 'c', but we check strictly first
         let el = document.getElementById(elementId);
-        
         if (el) {
             console.log("Cat found via ID " + elementId + "! Starting tracking.");
             window.catVisualsId = elementId;
         } else {
-            // Debugging log to see what it's looking for
-            // console.log("Searching for element:", elementId);
             setTimeout(checkElement, 50);
         }
     };
@@ -81,7 +85,6 @@ ui.add_head_html("""
     const rect = element.getBoundingClientRect();
     const catCenterX = rect.left + (rect.width / 2);
 
-    // Apply Flip
     if (e.clientX > catCenterX) {
         element.style.transform = 'scaleX(1)';
     } else {
@@ -247,7 +250,8 @@ async def cameraAction(target_x_pct, target_y_pct, target_zoom, speed=2.0):
 async def moveCat(target_x_pct, target_y_pct, speed=1.0, run_anim="walk", end_anim="idle", restore_tracking=True):
     global cat_x, cat_y, cat
 
-    ui.run_javascript('window.setTracking(false)')
+    if cat:
+        cat.client.run_javascript('window.setTracking(false)')
 
     if target_x_pct < cat_x:
         set_cat_orientation(False)
@@ -280,8 +284,8 @@ async def moveCat(target_x_pct, target_y_pct, speed=1.0, run_anim="walk", end_an
 
     doAnim(end_anim, 0.35)
     
-    if restore_tracking:
-        ui.run_javascript('window.setTracking(true)')
+    if restore_tracking and cat:
+        cat.client.run_javascript('window.setTracking(true)')
 
 def changePfp(skin):
     ui.image(spriteCycler(0, 0, 32, skin, scale=SPRITE_SCALE)).classes('w-25 h-25')
@@ -323,7 +327,8 @@ def stats_left():
 current = 'home'   
 buttons = {}   
 
-def press(name: str):
+# FIX: Made press async to properly await coroutines (like foodbowl)
+async def press(name: str):
     global current, buttons
     prev = current
     if prev == name: 
@@ -337,49 +342,54 @@ def press(name: str):
     n_dn.classes(remove='opacity-0', add='opacity-100')
     n_icon.style('transform: translate(-50%, -57%) perspective(600px) scaleY(1.02);')
     current = name
-    if name in globals() and callable(globals()[name]):
-        globals()[name]()
+    
+    if name in globals():
+        func = globals()[name]
+        if callable(func):
+            # FIX: Check if the function is async and await it
+            if asyncio.iscoroutinefunction(func):
+                await func()
+            else:
+                func()
 
 
-def home():
+# FIX: Made home async to preserve context
+async def home():
     global currentroom
     if currentroom != 'home':
         ui.navigate.to('/')
         currentroom = 'home'
     ui.notify("home")
-    client = ui.context.client
+    
+    await cameraAction(0, 0, 1.0, speed=2.0)
+    if cat_x != 50 or cat_y != 55:
+        await moveCat(50, 55, speed=1.5, run_anim="walk")
 
-    async def safe_home_task():
-        with client:
-            await cameraAction(0, 0, 1.0, speed=2.0)
-            if cat_x != 50 or cat_y != 55:
-                await moveCat(50, 55, speed=1.5, run_anim="walk")
-
-    asyncio.create_task(safe_home_task())
-
-def shower(): 
+# FIX: Made shower async
+async def shower(): 
     global currentroom
     ui.navigate.to('/bath')
     currentroom = 'bath'
+    
+    # We use create_task here for parallel actions or simple awaits
+    # Since these return coroutines, we can await them or fire-and-forget
+    # Here we fire-and-forget because we want the UI to respond immediately
     asyncio.create_task(cameraAction(0, 0, 1.0, speed=2.0))
     if cat_x != 50 or cat_y != 55:
         asyncio.create_task(moveCat(50, 55, speed=1.5, run_anim="walk"))
     
-def sleep(): 
+# FIX: Made sleep async
+async def sleep(): 
     global currentroom
     if currentroom != 'home':
         ui.navigate.to('/')
         currentroom = 'home'
-    client = ui.context.client
-
-    async def safe_sleep_task():
-        with client:
-            await sleepbutasync()
-    asyncio.create_task(safe_sleep_task())
-   
+    
+    await sleepbutasync()
 
 async def sleepbutasync():
-    ui.run_javascript('window.setTracking(false)')
+    if cat:
+        cat.client.run_javascript('window.setTracking(false)')
     asyncio.create_task(cameraAction(-15, -15, 2.0, speed=3.0))
     await moveCat(38, 44, speed=1, run_anim="walk", restore_tracking=False)
     set_cat_orientation(True)
@@ -390,18 +400,26 @@ async def sleepbutasync():
 readytoeat = False
 
 def eat(): 
-    asyncio.create_task(eatasync())
+    # This wrapper is mostly redundant now that press handles async, 
+    # but kept for compatibility if called elsewhere
+    with ui.context.client:
+        asyncio.create_task(foodbowl())
+    
     
 async def eatasync():
     global readytoeat
     ui.notify("eat")
     readytoeat = True
-    await asyncio.gather(
-    cameraAction(-15, -25, 2.0, speed=2.0),
-    moveCat(45, 61, speed=1.5, run_anim="walk"))
-    ui.navigate.to('/food')
-   
     
+    await asyncio.gather(
+        cameraAction(-15, -25, 2.0, speed=2.0),
+        moveCat(45, 61, speed=1.5, run_anim="walk")
+    )
+    
+    if cat:
+        cat.client.open('/food')
+    else:
+        ui.navigate.to('/food')
 
 def wardrobe(): ui.notify("wardrobe")
 def settings(): ui.notify("settings")
@@ -409,6 +427,7 @@ def settings(): ui.notify("settings")
 def button(name: str):
     global current, buttons
     with ui.element('div').classes('inline-block'):
+        # NiceGUI handles the async lambda automatically
         with ui.element('div').classes('relative w-16 h-16 cursor-pointer').on('click', lambda e, n=name: press(n)):
             buttonUp = ui.image("/textures/button1.png").classes('absolute inset-0 w-full h-full object-contain opacity-100')
             buttonDown = ui.image("/textures/button2.png").classes('absolute inset-0 w-full h-full object-contain opacity-0')
@@ -427,9 +446,9 @@ def toolbar_right():
         button("home")
         button("shower")
         button("sleep")
-        button("eat")
+        button("foodbowl") # Ensure you have /textures/foodbowl.png
         button("wardrobe")
-        button("settings")
+        button("settings") # Ensure you have /textures/settings.png
 
 def bottom_right_button():
     with ui.element('div').classes('relative w-32 h-32 cursor-pointer').style('background-color: #bd9a8e; border-radius: 30%; border: 4px solid #7c5a52;'):
@@ -439,9 +458,9 @@ async def foodbowl():
     global readytoeat
     ui.notify("Food bowl clicked")
     if not readytoeat:
-        await eat()
+        await eatasync()
         return
-    ui.navigate.to('/feed')
+    ui.navigate.to('/food')
 
 def waterbowl():
     ui.notify("Water bowl clicked")
@@ -466,7 +485,7 @@ async def cycleclasses():
 
 def room_content():
     global canvas, cat, cat_x, cat_y, cat_visuals
-     
+      
     with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', lambda: ui.notify('Bed clicked')):
         bedUI()
 
@@ -517,18 +536,19 @@ def showerui():
     pass
     
 def bathui():
-    global canvas, room, cat, cat_x, cat_y, water, catjoy, cat_visuals
+    global canvas, room, cat, cat_x, cat_y, water, catjoy, cat_visuals, target_x, target_y
     with room:
         with ui.element('div').classes('relative').style('left: 20.5%; top: 31.9%; width: 11.1%; height: 33.3%; transform: rotate(-1deg);').on('click', lambda: showerhelp()):
             ui.image(spriteHandler(0, 0, 64, 192, "showersprite.png", scale=SPRITE_SCALE)).classes('object-contain absolute')
             Preload("realshower.png", 3, "showering", 64, 192)
-        
+
         cat = ui.element('div').classes('absolute').style(f'left:{cat_x}%; top:{cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;')
         with cat:
             cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
             with cat_visuals:
                 Preload(curCatSkin, 2, "idle")
                 Preload("BlackCat/shower.png", 3, "shower")
+                Preload("BlackCat/RunCatb.png", 6, "walk")
             catjoy = ui.joystick(color='transparent', size=80, on_move=lambda e: catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
         
         doAnim("idle", 0.35)
@@ -538,15 +558,28 @@ def bathui():
 
 shower_task = None
 
+async def run_away_loop():
+    global water, target_x, target_y
+    while water:
+        
+        target_x = random.uniform(30, 60) 
+        target_y = random.uniform(30, 60)
+        run_speed = random.uniform(1.0, 2.0) 
+        await moveCat(target_x, target_y, speed=run_speed, run_anim="walk", end_anim="walk", restore_tracking=False)
+        print(f"Cat is running to ({target_x:.1f}%, {target_y:.1f}%)!")
+        await asyncio.sleep(0.3)
+
 def showerhelp():
-    global water, shower_task, catjoy
-    print(water)
+    global water, shower_task, catjoy, evading
     frames = anim_arrays.get("showering")
 
     if water == False:
         water = True
         ui.notify("Cat is now showering!")
-      
+        if evading:
+            evading.cancel()
+        evading = asyncio.create_task(run_away_loop())
+                
         asyncio.create_task(cycleclasses())
 
         if shower_task:
@@ -565,6 +598,8 @@ def showerhelp():
         if shower_task:
             shower_task.cancel()
             shower_task = None
+        evading.cancel()
+        evading = None
         
         for f in frames:
             f.classes(remove='opacity-100', add='opacity-0')
@@ -579,7 +614,9 @@ def room_page():
         room_content()
         
 def food_page():
-    global currentroom, anim_arrays
+    global currentroom, anim_arrays, current
+    if current != 'foodbowl':
+        current = 'foodbowl'
     currentroom = 'food'      
     anim_arrays = {}
     baseui('bigbowl.png', 'bg-tan-200')
@@ -587,7 +624,67 @@ def food_page():
         foodui()
 
 def foodui():
-    pass
+    global room, eatlevel, pressed, blackcat
+    with room:
+        with ui.element('div').classes('absolute object-contain').style('width: 21vw; height: 30vh; right:28%; top:30%;'):  
+            Preload("foodappearanimation.png", 3, "foodadd", 160, 128)
+        blackcat = ui.element('div').classes('absolute').style('top:120%; width:70vw; transform: translateX(-10%);') #20 good 120 out
+        with blackcat:     
+            ui.image("/textures/eatingbro.png").classes('object-contain')
+        ui.image("/textures/catscale.png").classes('object-contain absolute').style('left:95%; top:10%; width:20vw;').on('click', scaleclickhandle)
+        eatlevel = ui.image(spriteHandler(267, 708, 62, 25, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:113%; top:55%; width:10vw;') # bottom 55%, top 17%
+        asyncio.create_task(oscilatefood())
+
+async def scaleclickhandle():
+    global pressed, pos, room, blackcat
+    pressed = True
+    with room:
+        if pos<=36 and pos>=32 or pos<27 and pos>=23:
+            ui.notify("average feed")
+        elif pos<32 and pos>27:
+            ui.notify("great feed")
+        if pos<=55 and pos>36 or pos<23 and pos>=17:
+            ui.notify("bad feed")
+        await asyncio.sleep(1)
+        getfood = anim_arrays.get("foodadd")
+        getfood[0].classes(remove='opacity-0', add='opacity-100')
+        await asyncio.sleep(0.2)
+        getfood[1].classes(remove='opacity-0', add='opacity-100')
+        getfood[0].classes(remove='opacity-100', add='opacity-0')
+        await asyncio.sleep(0.2)
+        getfood[2].classes(remove='opacity-0', add='opacity-100')
+        getfood[1].classes(remove='opacity-100', add='opacity-0')
+        await asyncio.sleep(0.2)
+        getfood[2].classes(remove='opacity-100', add='opacity-0')
+        getfood[3].classes(remove='opacity-0', add='opacity-100')
+        await asyncio.sleep(0.5)
+        for x in range(120, 20, -1):
+            blackcat.style(f'top:{x}%; width:70vw; transform: translateX(-10%);')
+            await asyncio.sleep(0.01)
+        getfood[3].classes(remove='opacity-100', add='opacity-0')
+        await asyncio.sleep(1)
+        for x in range(20, 120):
+            blackcat.style(f'top:{x}%; width:70vw; transform: translateX(-10%);')
+            await asyncio.sleep(0.01)
+        
+    
+
+async def oscilatefood():
+    global eatlevel, pressed, pos
+    pressed = False
+    up=True
+    
+    while pressed == False:
+        if pos>=55:
+            up = False
+        if pos<=17:
+            up = True
+        if up==True:
+            pos+=1
+        elif up==False:
+            pos-=1
+        eatlevel.style(f'left:113%; top:{pos}%; width:10vw;')
+        await asyncio.sleep(0.025)
 
 def other():
     ui.label('Other page')
@@ -595,7 +692,7 @@ def other():
 
 def bath_page():
     global currentroom, anim_arrays, water
-    currentroom = 'bath'      
+    currentroom = 'bath'           
     anim_arrays = {}           
     water = False
     
