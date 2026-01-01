@@ -36,6 +36,24 @@ BASE = pathlib.Path(__file__).parent
 app.add_static_files('/static', str(BASE / 'static'))      
 app.add_static_files('/textures', str(BASE / 'textures'))  
 
+skinfolderarray = [
+    "Batman Cat",
+    "Brown Cat", 
+    "Classical Cat",
+    "Christmas Cat",
+    "Demonic Cat",
+    "Egypt Cat",
+    "Siamese Cat",
+    "Three Color Cat",
+    "Tiger Cat",
+    "Black Cat",
+    "Halloween Cat",
+    "Goofy White Cat"
+]
+
+skinnum = 3
+curCatSkin = skinfolderarray[skinnum - 1]
+
 ui.add_head_html("""
 <style>
   img {
@@ -63,7 +81,6 @@ ui.add_head_html("""
     const checkElement = () => {
         let el = document.getElementById(elementId);
         if (el) {
-            console.log("Cat found via ID " + elementId + "! Starting tracking.");
             window.catVisualsId = elementId;
         } else {
             setTimeout(checkElement, 50);
@@ -163,7 +180,7 @@ async def cyclingSprite(frames_list, time):
             frames_list[index].classes(remove='opacity-0', add='opacity-100')
             await asyncio.sleep(time)
 
-curCatSkin = "BlackCat/SittingB.png"
+
 
 def catPet(coord):
     global petState, currentroom
@@ -187,18 +204,8 @@ def catPet(coord):
         if petState == 3 and coord.y < -0.5: 
             petAnim()
             
-    if currentroom == 'bath' and water == True:
-        if petState == 0:
-            if coord.y > 0.5: 
-                petState = 3
-            elif coord.y < -0.5: 
-                petState = 1
-        if petState == 1 and coord.y > 0.5: 
-            petAnim("shower")
-        if petState == 3 and coord.y < -0.5:
-            petAnim("shower")
 
-def petAnim(anim_name="pet"):
+def petAnim():
     global petState, pet_timeout_task
     
     if pet_timeout_task:
@@ -208,17 +215,18 @@ def petAnim(anim_name="pet"):
     if petState != 2:
         petState = 2
         ui.notify("Cat petted!")
-        doAnim(anim_name, 0.15)
+        doAnim("pet", 0.15)
 
     pet_timeout_task = asyncio.create_task(petEnd())
 
 async def petEnd():
-    global petState, pet_timeout_task
+    global petState, pet_timeout_task, currentroom
     
     await asyncio.sleep(0.2) 
     petState = 0
     pet_timeout_task = None
-    doAnim("idle", 0.35)
+    if currentroom != 'bath':
+        doAnim("idle", 0.35)
 
 async def cameraAction(target_x_pct, target_y_pct, target_zoom, speed=2.0):
     global cam_x, cam_y, cam_zoom
@@ -247,48 +255,49 @@ async def cameraAction(target_x_pct, target_y_pct, target_zoom, speed=2.0):
     cam_zoom = target_zoom
     update_transform()
 
-async def moveCat(target_x_pct, target_y_pct, speed=1.0, run_anim="walk", end_anim="idle", restore_tracking=True):
+async def moveCat(target_x_pct, target_y_pct, speed=1.0, run_anim="walk", end_anim="idle", restore_tracking=True, animtime1=0.15, animtime2=0.35, delay=0.0):
     global cat_x, cat_y, cat
 
-    if cat:
-        cat.client.run_javascript('window.setTracking(false)')
+    cat.client.run_javascript('window.setTracking(false)')
 
     if target_x_pct < cat_x:
         set_cat_orientation(False)
     elif target_x_pct > cat_x:
         set_cat_orientation(True) 
 
-    doAnim(run_anim, 0.15)
+    
+    doAnim(run_anim, animtime1)
 
+    await asyncio.sleep(delay)
+    
     dx = target_x_pct - cat_x
     dy = target_y_pct - cat_y
     dist = (dx**2 + dy**2)**0.5
     
-    if dist > 0:
-        step_size = 0.5 * speed
-        steps = int(dist / step_size)
-        if steps > 0:
-            vx = dx / steps
-            vy = dy / steps
-            for _ in range(steps):
-                cat_x += vx
-                cat_y += vy
-                if cat:
-                    cat.style(f'left:{cat_x}%; top:{cat_y}%;')
-                await asyncio.sleep(0.016) 
+    step_size = 0.5 * speed
+    steps = int(dist / step_size)
+    dx /= steps
+    dy /= steps
+    for _ in range(steps):
+        cat_x += dx
+        cat_y += dy
+        
+        cat.style(f'left:{cat_x}%; top:{cat_y}%;')
+        await asyncio.sleep(0.016) 
 
     cat_x = target_x_pct
     cat_y = target_y_pct
     if cat:
         cat.style(f'left:{cat_x}%; top:{cat_y}%;')
 
-    doAnim(end_anim, 0.35)
+    doAnim(end_anim, animtime2)
     
     if restore_tracking and cat:
         cat.client.run_javascript('window.setTracking(true)')
 
 def changePfp(skin):
-    ui.image(spriteCycler(0, 0, 32, skin, scale=SPRITE_SCALE)).classes('w-25 h-25')
+    endskin = f"{skin}/SittingB.png"
+    ui.image(spriteCycler(0, 0, 32, endskin, scale=SPRITE_SCALE)).classes('w-25 h-25')
 
 def hud_top_left():
     with ui.element('div').classes('relative'):
@@ -481,7 +490,7 @@ async def cycleclasses():
         await asyncio.sleep(0.2)
 
 def room_content():
-    global canvas, cat, cat_x, cat_y, cat_visuals
+    global canvas, cat, cat_x, cat_y, cat_visuals, curCatSkin
       
     with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', sleep):
         bedUI()
@@ -496,11 +505,11 @@ def room_content():
 
         cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
         with cat_visuals:
-            Preload(curCatSkin, 2, "idle")
-            Preload("BlackCat/Idle2Catb.png", 13, "pet")
-            Preload("BlackCat/RunCatb.png", 6, "walk")
-            Preload("BlackCat/JumpCatb.png", 12, "jump")
-            Preload("BlackCat/SleepCatb.png", 2, "sleep")
+            Preload(f"{curCatSkin}/IdleCatb.png", 2, "idle")
+            Preload(f"{curCatSkin}/Idle2Catb.png", 13, "pet")
+            Preload(f"{curCatSkin}/RunCatb.png", 6, "walk")
+            Preload(f"{curCatSkin}/JumpCatb.png", 12, "jump")
+            Preload(f"{curCatSkin}/SleepCatb.png", 2, "sleep")
         ui.joystick(color='transparent', size=80, on_move=lambda e: catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
     
     doAnim("idle", 0.35)
@@ -533,7 +542,7 @@ def showerui():
     pass
     
 def bathui():
-    global canvas, room, cat, cat_x, cat_y, water, catjoy, cat_visuals, target_x, target_y
+    global canvas, room, cat, cat_x, cat_y, water, catjoy, cat_visuals, target_x, target_y, curCatSkin
     with room:
         with ui.element('div').classes('relative').style('left: 20.5%; top: 31.9%; width: 11.1%; height: 33.3%; transform: rotate(-1deg);').on('click', lambda: showerhelp()):
             ui.image(spriteHandler(0, 0, 64, 192, "showersprite.png", scale=SPRITE_SCALE)).classes('object-contain absolute')
@@ -543,9 +552,9 @@ def bathui():
         with cat:
             cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
             with cat_visuals:
-                Preload(curCatSkin, 2, "idle")
-                Preload("BlackCat/shower.png", 3, "shower")
-                Preload("BlackCat/RunCatb.png", 6, "walk")
+                Preload(f"{curCatSkin}/SittingB.png", 2, "idle")
+                Preload("shower.png", 3, "shower")
+                Preload(f"{curCatSkin}/RunCatb.png", 6, "walk")
             catjoy = ui.joystick(color='transparent', size=80, on_move=lambda e: catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
         
         doAnim("idle", 0.35)
@@ -578,7 +587,7 @@ def showerhelp():
         evading = asyncio.create_task(run_away_loop())
                 
         asyncio.create_task(cycleclasses())
-
+        
         if shower_task:
             shower_task.cancel()
         
@@ -600,6 +609,8 @@ def showerhelp():
         
         for f in frames:
             f.classes(remove='opacity-100', add='opacity-0')
+            
+        
 
 def room_page():
     global currentroom, anim_arrays
@@ -699,43 +710,113 @@ def bath_page():
     
 
 def skins_page():
-    global currentroom, anim_arrays, current
+    global currentroom, anim_arrays, current, skinnamelabel, changingui
     currentroom = 'skins'      
     anim_arrays = {}
     current = 'wardrobe'
     baseui('wardroberoom1.png')
+    
     with room:
-        skinsui()
-    with ui.element('div').classes('absolute pointer-events-none').style("left:15%; top:15%; pointer-events: none; border-radius:2%; border: 0.2vw solid grey; width:70vw; height:70vh; background-color: rgba(0, 0, 0, 0.3);"):
+        skinsui()          
+
+        changingui = ui.element('div').classes('absolute z-20').style("left:7%; top:250%; width:70%; height:35%; ""border-radius:2%; border: 0.2vw solid grey; ""background-color: rgba(189, 154, 142, 0.7);")
         
-        with ui.element('div').classes('absolute').style('height:10vh; top:70%; left:20%; display:flex; flex-direction:row; align-items:center; justify-content:center; gap:1vw; padding:4vw; '):
-                ui.image(spriteHandler(392, 767, 64 , 37, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:10vw; display: inline-block;')
-                ui.element('div').classes('absolute').style('left:17.1vw; height:2vw; width:6vw; top:3.8vw; box-shadow: 0 0 40px 10px #000;')
-                ui.image(spriteHandler(180, 794, 41 , 23, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:10vw; bottom:1%; display: inline-block;')
-                ui.image(spriteHandler(448, 767, 64 , 37, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:10vw; display: inline-block;')
+        with changingui:
+            skinnamelabel = ui.label(curCatSkin).style('position:absolute; top:10%; left:50%; transform: translateX(-50%) translateY(-50%); color:white; font-size:2vw; background:transparent;')
+            with ui.element('div').classes('absolute').style('height:15%; top:70%; left:15%; display:flex; flex-direction:row; align-items:center; justify-content:center; gap:1vw; padding:2vw; background-color: rgba(0, 0, 0, 0.3); border-radius:1%; width:70%;'):
+                ui.image(spriteHandler(392, 767, 64 , 37, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:7vw; display: inline-block;').on('click', lambda: skinarrows('left'))
+                # ui.element('div').classes('absolute').style('left:17.1vw; height:2vw; width:6vw; top:3.8vw; box-shadow: 0 0 40px 10px #000;')
+                with ui.image(spriteHandler(180, 797, 41 , 21, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:7vw; bottom:32%; left:2%; display: inline-block;').on('click', skinconfirm):
+                    ui.label('Confirm').style('position:absolute; top:45%; left:52%; transform: translateX(-50%) translateY(-50%); color:white; font-size:1.2vw; background:transparent;')
+                ui.image(spriteHandler(448, 767, 64 , 37, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:7vw; display: inline-block;').on('click', lambda: skinarrows('right'))
     
 def skinsui():
     global room, cat_x, cat_y, cat, cat_visuals
     cat_x = 40
     with room:
         ui.element('div').classes('absolute object-contain').style('width: 20vw; height: 25vh; right:38%; top:25%; transform: rotate(-15deg);').on('click', wardrobechanging)
-        cat = ui.element('div').classes('absolute').style(f'left:{cat_x}%; top:{cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;')
+        cat = ui.element('div').classes('absolute z-10').style(f'left:{cat_x}%; top:{cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;')
         with cat:
             cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
-            with cat_visuals:
-                Preload(curCatSkin, 2, "idle")
-                Preload("BlackCat/RunCatb.png", 6, "walk")
+            
+            wardrobecallableprelod()
         doAnim("idle", 0.35)
         
         
     ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")')
-        
+
+def wardrobecallableprelod():
+    global cat_visuals, curCatSkin
+    cat_visuals.clear()
+    with cat_visuals:
+        Preload(f"{curCatSkin}/SittingB.png", 2, "idle")
+        Preload(f"{curCatSkin}/RunCatb.png", 6, "walk")
+        Preload(f"{curCatSkin}/JumpCatb.png", 12, "jump")
+    doAnim("idle", 0.35)
+
+
 async def wardrobechanging():
-    cat.client.run_javascript('window.setTracking(false)')
-    asyncio.create_task(cameraAction(20, 20, 2.0, speed=2.0))
-    asyncio.create_task(moveCat(41, 43, speed=2, run_anim="walk"))
-    await asyncio.sleep(1)
+    global changingui, cat, cat_visuals
     
+    cat.client.run_javascript('window.setTracking(false)')
+    
+    
+    asyncio.create_task(cameraAction(20, 20, 2.0, speed=2.0))
+    asyncio.create_task(moveCat(41, 43, speed=2, run_anim="walk", restore_tracking=False))
+    
+    await asyncio.sleep(1.5)
+    
+    
+    await asyncio.gather(
+        moveCat(45, 9, speed=1.5, run_anim="jump", end_anim="idle", restore_tracking=False, animtime1=0.3, animtime2=0.35, delay=0.85),
+        menurollout(115, 23)
+    )
+    
+    set_cat_orientation(False)
+    cat.classes(remove='z-10', add='z-50')
+    asyncio.create_task(moveCat(35, 30, speed=1.5, run_anim="jump", end_anim="idle", restore_tracking=False, animtime1=0.3, animtime2=0.35, delay=0.7))
+
+
+
+def skinarrows(direction):
+    global skinnum, curCatSkin, skinnamelabel
+    if direction == 'left':
+        skinnum -= 1
+        if skinnum < 1:
+            skinnum = len(skinfolderarray)
+
+    elif direction == 'right':
+        skinnum += 1
+        if skinnum > len(skinfolderarray):
+            skinnum = 1
+    curCatSkin = skinfolderarray[skinnum -1]
+    skinnamelabel.set_text(curCatSkin)
+    wardrobecallableprelod()
+    
+async def skinconfirm():
+    global changingui, cat, cat_visuals
+    asyncio.create_task(moveCat(41, 43, speed=1.5, run_anim="jump", end_anim="idle", restore_tracking=False, animtime1=0.3, animtime2=0.35, delay=0.7))
+    await asyncio.sleep(0.7)
+    asyncio.create_task(cameraAction(0, 0, 1.0, speed=2.0))
+    asyncio.create_task(menurollout(23, -150))
+    
+    await asyncio.sleep(1.5)
+    
+    asyncio.create_task(moveCat(40, 55, speed=1.5, run_anim="walk"))
+    
+    await asyncio.sleep(1.5)
+    
+    cat.client.run_javascript('window.setTracking(true)')
+    cat.classes(remove='z-50', add='z-10')
+        
+
+
+async def menurollout(start, end):
+    global changingui
+    
+    for x in range(start, end, -1):
+        changingui.style(f'top:{x}%;')
+        await asyncio.sleep(0.01)
 
 ui.sub_pages({
     '/': room_page,
