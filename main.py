@@ -327,7 +327,6 @@ def stats_left():
 current = 'home'   
 buttons = {}   
 
-# FIX: Made press async to properly await coroutines (like foodbowl)
 async def press(name: str):
     global current, buttons
     prev = current
@@ -346,14 +345,12 @@ async def press(name: str):
     if name in globals():
         func = globals()[name]
         if callable(func):
-            # FIX: Check if the function is async and await it
             if asyncio.iscoroutinefunction(func):
                 await func()
             else:
                 func()
 
 
-# FIX: Made home async to preserve context
 async def home():
     global currentroom
     if currentroom != 'home':
@@ -365,31 +362,27 @@ async def home():
     if cat_x != 50 or cat_y != 55:
         await moveCat(50, 55, speed=1.5, run_anim="walk")
 
-# FIX: Made shower async
+
 async def shower(): 
     global currentroom
     ui.navigate.to('/bath')
     currentroom = 'bath'
-    
-    # We use create_task here for parallel actions or simple awaits
-    # Since these return coroutines, we can await them or fire-and-forget
-    # Here we fire-and-forget because we want the UI to respond immediately
     asyncio.create_task(cameraAction(0, 0, 1.0, speed=2.0))
     if cat_x != 50 or cat_y != 55:
         asyncio.create_task(moveCat(50, 55, speed=1.5, run_anim="walk"))
     
-# FIX: Made sleep async
 async def sleep(): 
-    global currentroom
+    global currentroom, current
     if currentroom != 'home':
         ui.navigate.to('/')
         currentroom = 'home'
+    if current != 'sleep':
+        current = 'sleep'
     
     await sleepbutasync()
 
 async def sleepbutasync():
-    if cat:
-        cat.client.run_javascript('window.setTracking(false)')
+    cat.client.run_javascript('window.setTracking(false)')
     asyncio.create_task(cameraAction(-15, -15, 2.0, speed=3.0))
     await moveCat(38, 44, speed=1, run_anim="walk", restore_tracking=False)
     set_cat_orientation(True)
@@ -400,8 +393,6 @@ async def sleepbutasync():
 readytoeat = False
 
 def eat(): 
-    # This wrapper is mostly redundant now that press handles async, 
-    # but kept for compatibility if called elsewhere
     with ui.context.client:
         asyncio.create_task(foodbowl())
     
@@ -421,13 +412,19 @@ async def eatasync():
     else:
         ui.navigate.to('/food')
 
-def wardrobe(): ui.notify("wardrobe")
+async def wardrobe(): 
+    ui.notify("wardrobe")
+    if cat:
+        cat.client.open('/wardrobe')
+    else:
+        ui.navigate.to('/wardrobe')
+
+
 def settings(): ui.notify("settings")
 
 def button(name: str):
     global current, buttons
     with ui.element('div').classes('inline-block'):
-        # NiceGUI handles the async lambda automatically
         with ui.element('div').classes('relative w-16 h-16 cursor-pointer').on('click', lambda e, n=name: press(n)):
             buttonUp = ui.image("/textures/button1.png").classes('absolute inset-0 w-full h-full object-contain opacity-100')
             buttonDown = ui.image("/textures/button2.png").classes('absolute inset-0 w-full h-full object-contain opacity-0')
@@ -446,9 +443,9 @@ def toolbar_right():
         button("home")
         button("shower")
         button("sleep")
-        button("foodbowl") # Ensure you have /textures/foodbowl.png
+        button("foodbowl")
         button("wardrobe")
-        button("settings") # Ensure you have /textures/settings.png
+        button("settings")
 
 def bottom_right_button():
     with ui.element('div').classes('relative w-32 h-32 cursor-pointer').style('background-color: #bd9a8e; border-radius: 30%; border: 4px solid #7c5a52;'):
@@ -475,7 +472,7 @@ def bedUI():
     ui.image(spriteHandler(201, 137, 112, 83, "Furnitures.png", scale=SPRITE_SCALE)).classes('w-[10vw] object-contain')
 
 async def cycleclasses():
-    global water, catjoy
+    global water, catjoy    
     classes = ['showerhandle1', 'showerhandle2', 'showerhandle3', 'showerhandle4']
     idx = 0
     while (water == True):
@@ -486,7 +483,7 @@ async def cycleclasses():
 def room_content():
     global canvas, cat, cat_x, cat_y, cat_visuals
       
-    with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', lambda: ui.notify('Bed clicked')):
+    with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', sleep):
         bedUI()
 
     with ui.element('div').classes('relative').style('left: 35%; top: 72.5%; width: 20%; height: 10%;'):
@@ -700,11 +697,49 @@ def bath_page():
     with room:
         bathui()
     
+
+def skins_page():
+    global currentroom, anim_arrays, current
+    currentroom = 'skins'      
+    anim_arrays = {}
+    current = 'wardrobe'
+    baseui('wardroberoom1.png')
+    with room:
+        skinsui()
+    with ui.element('div').classes('absolute pointer-events-none').style("left:15%; top:15%; pointer-events: none; border-radius:2%; border: 0.2vw solid grey; width:70vw; height:70vh; background-color: rgba(0, 0, 0, 0.3);"):
+        
+        with ui.element('div').classes('absolute').style('height:10vh; top:70%; left:20%; display:flex; flex-direction:row; align-items:center; justify-content:center; gap:1vw; padding:4vw; '):
+                ui.image(spriteHandler(392, 767, 64 , 37, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:10vw; display: inline-block;')
+                ui.element('div').classes('absolute').style('left:17.1vw; height:2vw; width:6vw; top:3.8vw; box-shadow: 0 0 40px 10px #000;')
+                ui.image(spriteHandler(180, 794, 41 , 23, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:10vw; bottom:1%; display: inline-block;')
+                ui.image(spriteHandler(448, 767, 64 , 37, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:10vw; display: inline-block;')
+    
+def skinsui():
+    global room, cat_x, cat_y, cat, cat_visuals
+    cat_x = 40
+    with room:
+        ui.element('div').classes('absolute object-contain').style('width: 20vw; height: 25vh; right:38%; top:25%; transform: rotate(-15deg);').on('click', wardrobechanging)
+        cat = ui.element('div').classes('absolute').style(f'left:{cat_x}%; top:{cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;')
+        with cat:
+            cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
+            with cat_visuals:
+                Preload(curCatSkin, 2, "idle")
+                Preload("BlackCat/RunCatb.png", 6, "walk")
+        doAnim("idle", 0.35)
+        
+        
+    ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")')
+        
+async def wardrobechanging():
+    cat.client.run_javascript('window.setTracking(false)')
+    asyncio.create_task(cameraAction(20, 20, 2.0, speed=2.0))
+    asyncio.create_task(moveCat(41, 43, speed=2, run_anim="walk"))
+    await asyncio.sleep(1)
     
 
 ui.sub_pages({
     '/': room_page,
-    '/other': other,
+    '/wardrobe': skins_page,
     '/bath': bath_page,
     '/food': food_page
 })
