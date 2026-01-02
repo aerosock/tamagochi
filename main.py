@@ -56,26 +56,80 @@ curCatSkin = skinfolderarray[skinnum - 1]
 
 ui.add_head_html("""
 <style>
-  img {
+.pixel-border {
+	clip-path: polygon(
+		0px 4px,
+		4px 4px,
+		4px 0px,
+		calc(100% - 4px) 0px,
+		calc(100% - 4px) 4px,
+		100% 4px,
+		100% calc(100% - 4px),
+		calc(100% - 4px) calc(100% - 4px),
+		calc(100% - 4px) 100%,
+		4px 100%,
+		4px calc(100% - 4px),
+		0px calc(100% - 4px)
+	);
+}
+  .q-img__loading {
+    display: none !important;
+  }
+  .instant-progress .q-linear-progress__model {
+  transition: none !important;
+  }
+  img{ 
   user-select: none;
   -webkit-user-select: none;
   user-drag: none; 
   -webkit-user-drag: none;
   }
-  @font-face { font-family: 'runescape'; src: url('/static/runescape.ttf') format('truetype'); }
-  html, body { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'runescape', sans-serif; font-size: 16px; }
-  .pixelated { image-rendering: pixelated; image-rendering: -moz-crisp-edges; image-rendering: crisp-edges; }
-  .custom-cursor { cursor: url('/static/hand.png') 16 16, auto !important; }
-  .fade-me { transition: opacity 0.1s; }
-  .showerhandle1{ cursor: url('/static/showerhandle1.png') 32 32, auto !important; }
-  .showerhandle2{ cursor: url('/static/showerhandle2.png') 32 32, auto !important; }
-  .showerhandle3{ cursor: url('/static/showerhandle3.png') 32 32, auto !important; }
-  .showerhandle4{ cursor: url('/static/showerhandle4.png') 32 32, auto !important; }
+  @font-face{ 
+  font-family: 'runescape'; src: url('/static/runescape.ttf') format('truetype'); 
+  }
+  html, body{ 
+  margin: 0; 
+  padding: 0;
+  width: 100%; 
+  height: 100%; 
+  font-family: 'runescape', sans-serif; 
+  font-size: 16px; 
+  }
+  .pixelated{ 
+  image-rendering: pixelated; 
+  image-rendering: -moz-crisp-edges; 
+  image-rendering: crisp-edges; 
+  }
+  .custom-cursor{ 
+  cursor: url('/static/hand.png') 16 16, auto !important; 
+  }
+  .fade-me{ 
+  transition: opacity 0.1s; 
+  }
+  .showerhandle1{ 
+  cursor: url('/static/showerhandle1.png') 32 32, auto !important; 
+  }
+  .showerhandle2{ 
+  cursor: url('/static/showerhandle2.png') 32 32, auto !important; 
+  }
+  .showerhandle3{ 
+  cursor: url('/static/showerhandle3.png') 32 32, auto !important; 
+  }
+  .showerhandle4{ 
+  cursor: url('/static/showerhandle4.png') 32 32, auto !important; 
+  }
+  .pixel-3d {
+	box-shadow:
+		2px 2px 0px rgba(0, 0, 0, 0.3),
+		inset 1px 1px 0px rgba(255, 255, 255, 0.2);
+  }
 </style>
 
 <script>
   window.catVisualsId = null;
   window.isTracking = true; 
+  window.mouseX = 0;
+  window.mouseY = 0;
 
   window.startCatTracking = (elementId) => {
     const checkElement = () => {
@@ -93,18 +147,34 @@ ui.add_head_html("""
     window.isTracking = state;
   };
 
+  window.checkOverlap = (elementId) => {
+    const el = document.getElementById(elementId);
+    if (!el) return false;
+    
+    const rect = el.getBoundingClientRect();
+    
+    return (
+        window.mouseX >= rect.left && 
+        window.mouseX <= rect.right && 
+        window.mouseY >= rect.top && 
+        window.mouseY <= rect.bottom
+    );
+  };
+
   document.addEventListener('mousemove', (e) => {
+    window.mouseX = e.clientX;
+    window.mouseY = e.clientY;
+
     if (!window.catVisualsId || !window.isTracking) return;
     
     const element = document.getElementById(window.catVisualsId);
     if (!element) return;
 
     const rect = element.getBoundingClientRect();
-    const catCenterX = rect.left + (rect.width / 2);
 
-    if (e.clientX > catCenterX) {
+    if (e.clientX > rect.right) {
         element.style.transform = 'scaleX(1)';
-    } else {
+    } else if(e.clientX < rect.left) {
         element.style.transform = 'scaleX(-1)';
     }
   });
@@ -185,14 +255,6 @@ async def cyclingSprite(frames_list, time):
 def catPet(coord):
     global petState, currentroom
 
-    if petState == 2:
-        anim_name = "pet"
-        if currentroom == 'bath' and water == True:
-            anim_name = "shower"
-        
-        petAnim(anim_name)
-        return
-
     if currentroom == 'home':
         if petState == 0:
             if coord.y > 0.5: 
@@ -200,8 +262,10 @@ def catPet(coord):
             elif coord.y < -0.5: 
                 petState = 1
         if petState == 1 and coord.y > 0.5: 
+            print("petanim")
             petAnim()
         if petState == 3 and coord.y < -0.5: 
+            print("petanim")
             petAnim()
             
 
@@ -505,17 +569,17 @@ def room_content():
 
         cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
         with cat_visuals:
-            Preload(f"{curCatSkin}/IdleCatb.png", 2, "idle")
+            Preload(f"{curCatSkin}/sittingb.png", 2, "idle")
             Preload(f"{curCatSkin}/Idle2Catb.png", 13, "pet")
             Preload(f"{curCatSkin}/RunCatb.png", 6, "walk")
             Preload(f"{curCatSkin}/JumpCatb.png", 12, "jump")
             Preload(f"{curCatSkin}/SleepCatb.png", 2, "sleep")
         ui.joystick(color='transparent', size=80, on_move=lambda e: catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
     
-    doAnim("idle", 0.35)
+    ui.timer(0, lambda: doAnim("idle", 0.35), once=True)
     update_transform()
     
-    ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")')
+    ui.timer(0, lambda: ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")'), once=True)
 
 def baseui(room_texture='Room.png', bg='bg-blue-200'):
     global canvas, room
@@ -528,6 +592,8 @@ def baseui(room_texture='Room.png', bg='bg-blue-200'):
             toolbar_right()
         with ui.element('div').classes('absolute right-8 bottom-8 z-50'):
             bottom_right_button()
+        with ui.element('div').classes('absolute left-10 bottom-20 z-50'):
+            resetbut()
         room_wrapper = ui.element('div').classes('absolute inset-0 flex items-center justify-center z-0 pointer-events-none')
         with room_wrapper:
             canvas = ui.element('div').classes('relative w-[min(50vw,1800px)] aspect-[1/1] bg-transparent pointer-events-auto').style('transform-origin: center center; transition: transform 80ms ease-out;')
@@ -537,17 +603,41 @@ def baseui(room_texture='Room.png', bg='bg-blue-200'):
                 ui.image(f'/textures/{room_texture}').classes('absolute inset-0 w-full h-full object-contain select-none pointer-events-none')
                 
                 room = ui.element('div').classes('absolute inset-0 pointer-events-auto')
+    asyncio.create_task(statuscheck())
+
+async def statuscheck():
+    global cam_x, cam_y, cam_zoom, reseticon
+    while True:
+        if cam_x != 0.0 or cam_y != 0.0 or cam_zoom != 1.0:
+            reseticon.classes(remove='opacity-0', add='opacity-100')
+        else:
+            reseticon.classes(remove='opacity-100', add='opacity-0')
+        await asyncio.sleep(0.1)
+
+def resetbut():
+    global reseticon
+    reseticon = ui.image(spriteHandler(487, 256, 22, 16, "catUI.png", scale=SPRITE_SCALE)).classes('w-10 h-10 cursor-pointer absolute opacity-0').style('left:0%; top:0%;').on('click', reset)
+
+async def reset():
+    global cam_x, cam_y, cam_zoom
+    cam_x = 0.0
+    cam_y = 0.0
+    cam_zoom = 1.0
+    update_transform()
 
 def showerui():
     pass
     
 def bathui():
-    global canvas, room, cat, cat_x, cat_y, water, catjoy, cat_visuals, target_x, target_y, curCatSkin
+    global canvas, room, cat, cat_x, cat_y, water, catjoy, cat_visuals, target_x, target_y, curCatSkin, shower_progress_bar, showernum
     with room:
         with ui.element('div').classes('relative').style('left: 20.5%; top: 31.9%; width: 11.1%; height: 33.3%; transform: rotate(-1deg);').on('click', lambda: showerhelp()):
             ui.image(spriteHandler(0, 0, 64, 192, "showersprite.png", scale=SPRITE_SCALE)).classes('object-contain absolute')
             Preload("realshower.png", 3, "showering", 64, 192)
-
+        shower_progress_bar = ui.linear_progress(value=0.0, show_value=False).classes('absolute w-100 z-50 h-20 instant-progress').style('left:95%; top:40%; transform: rotate(-90deg)')
+        with shower_progress_bar:
+            showernum = ui.label('0%').classes('absolute-full flex flex-center text-black bg-transparent text-lg content-center h-5').style('left:50%; top:50%; transform: translate(-50%, -50%) rotate(90deg);;')
+        
         cat = ui.element('div').classes('absolute').style(f'left:{cat_x}%; top:{cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;')
         with cat:
             cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
@@ -557,12 +647,28 @@ def bathui():
                 Preload(f"{curCatSkin}/RunCatb.png", 6, "walk")
             catjoy = ui.joystick(color='transparent', size=80, on_move=lambda e: catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
         
-        doAnim("idle", 0.35)
+        ui.timer(0, lambda: doAnim("idle", 0.35), once=True)
         update_transform()
         
-        ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")')
+        ui.timer(0, lambda: ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")'), once=True)
 
 shower_task = None
+
+async def cleaningcat():
+    global water, shower_progress_bar, showernum
+    progress = 0.0
+   
+    while water and progress < 1.0:
+        overlap = await cat_visuals.client.run_javascript(f'return window.checkOverlap("c{cat_visuals.id}")')
+        if overlap:
+            progress += 0.15
+            shower_progress_bar.value = progress
+            showernum.set_text(f"{int(progress * 100)}%")
+        await asyncio.sleep(0.2)    
+    if progress >= 1.0:
+        with cat_visuals.client:
+            ui.notify("Cat is clean now!")
+            showerhelp()
 
 async def run_away_loop():
     global water, target_x, target_y
@@ -572,7 +678,6 @@ async def run_away_loop():
         target_y = random.uniform(30, 60)
         run_speed = random.uniform(1.0, 2.0) 
         await moveCat(target_x, target_y, speed=run_speed, run_anim="walk", end_anim="walk", restore_tracking=False)
-        print(f"Cat is running to ({target_x:.1f}%, {target_y:.1f}%)!")
         await asyncio.sleep(0.3)
 
 def showerhelp():
@@ -581,11 +686,10 @@ def showerhelp():
 
     if water == False:
         water = True
-        ui.notify("Cat is now showering!")
         if evading:
             evading.cancel()
         evading = asyncio.create_task(run_away_loop())
-                
+        asyncio.create_task(cleaningcat())
         asyncio.create_task(cycleclasses())
         
         if shower_task:
@@ -596,11 +700,10 @@ def showerhelp():
             
     else:
         water = False
-        ui.notify("Cat stopped showering!")
+
  
         catjoy.classes(remove='showerhandle1 showerhandle2 showerhandle3 showerhandle4')
         
-        print("near for cycle")
         if shower_task:
             shower_task.cancel()
             shower_task = None
@@ -609,7 +712,16 @@ def showerhelp():
         
         for f in frames:
             f.classes(remove='opacity-100', add='opacity-0')
-            
+        asyncio.create_task(moveCat(55, 50, speed=2, run_anim="walk", end_anim="idle", restore_tracking=True))
+        with ui.dialog() as dialog, ui.card().style( 'padding: 2vw; background-color: rgb(255, 210, 194);').classes('pixel-border pixel-3d'):
+            ui.label('You have cleaned your cat!').classes('text-xl font-bold').style('font-family: runescape; color: #7c5a52;')
+            ui.button('Go Home', on_click=dialog.close, color='rgb(255, 210, 194)').style('background-color: #7c5a52; color: white; font-family: runescape; font-size: 1.2vw; padding: 0.5vw 1vw; border-radius: none; margin-top: 1vw;').classes('pixel-border pixel-3d')
+        async def dial():
+            await dialog
+            with dialog.client:
+                await home()
+        asyncio.create_task(dial())
+               
         
 
 def room_page():
@@ -635,7 +747,7 @@ def foodui():
     global room, eatlevel, pressed, blackcat
     with room:
         with ui.element('div').classes('absolute object-contain').style('width: 21vw; height: 30vh; right:28%; top:30%;'):  
-            Preload("foodappearanimation.png", 3, "foodadd", 160, 128)
+            Preload("edafood.png", 3, "foodadd", 256, 256)
         blackcat = ui.element('div').classes('absolute').style('top:120%; width:70vw; transform: translateX(-10%);') #20 good 120 out
         with blackcat:     
             ui.image("/textures/eatingbro.png").classes('object-contain')
@@ -646,13 +758,16 @@ def foodui():
 async def scaleclickhandle():
     global pressed, pos, room, blackcat
     pressed = True
+    feedquality = ["too much food.\n Hunger set to 0, decreased Health by 10 points.", "almost the perfect amount of food.\nHunger set to 0.", "the perfect amount of food.\nHunger set to 0, added 20 Energy, added 10 Health points.", "too little food.\nHunger set to 20, Health decreased by 10 points."]
     with room:
         if pos<=36 and pos>=32 or pos<27 and pos>=23:
-            ui.notify("average feed")
+            feed = 1
         elif pos<32 and pos>27:
-            ui.notify("great feed")
-        if pos<=55 and pos>36 or pos<23 and pos>=17:
-            ui.notify("bad feed")
+            feed = 2
+        if pos<=55 and pos>36:
+            feed = 0
+        if pos<23 and pos>=17:
+            feed = 3
         await asyncio.sleep(1)
         getfood = anim_arrays.get("foodadd")
         getfood[0].classes(remove='opacity-0', add='opacity-100')
@@ -674,6 +789,14 @@ async def scaleclickhandle():
         for x in range(20, 120):
             blackcat.style(f'top:{x}%; width:70vw; transform: translateX(-10%);')
             await asyncio.sleep(0.01)
+        with ui.dialog() as dialog, ui.card().style( 'padding: 2vw; background-color: rgb(255, 210, 194);').classes('pixel-border pixel-3d'):
+            ui.label(f"You gave your cat {feedquality[feed]}").classes('text-xl font-bold ').style('font-family: runescape; color: #7c5a52; white-space: pre-wrap;')
+            ui.button('Go Home', on_click=dialog.close, color='rgb(255, 210, 194)').style('background-color: #7c5a52; color: white; font-family: runescape; font-size: 1.2vw; padding: 0.5vw 1vw; border-radius: none; margin-top: 1vw;').classes('pixel-border pixel-3d')
+        async def dial():
+            await dialog
+            with dialog.client:
+                await home()
+        asyncio.create_task(dial())        
         
     
 
@@ -739,11 +862,8 @@ def skinsui():
         with cat:
             cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
             
-            wardrobecallableprelod()
-        doAnim("idle", 0.35)
-        
-        
-    ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")')
+            ui.timer(0, wardrobecallableprelod, once=True)
+    ui.timer(0, lambda: ui.run_javascript(f'window.startCatTracking("c{cat_visuals.id}")'), once=True)
 
 def wardrobecallableprelod():
     global cat_visuals, curCatSkin
@@ -824,6 +944,7 @@ ui.sub_pages({
     '/bath': bath_page,
     '/food': food_page
 })
+
 
 if __name__ in {"__main__", "__mp_main__"}:
     ui.run(native=False)
