@@ -929,7 +929,19 @@ async def skinconfirm():
     cat.client.run_javascript('window.setTracking(true)')
     cat.classes(remove='z-50', add='z-10')
         
-
+def login_page():
+    global currentroom, anim_arrays
+    currentroom = 'login'      
+    anim_arrays = {}
+    with ui.element('div').classes('fixed inset-0 z-50 flex items-center justify-center').style('font-family: runescape; background-color: #bd9a8e;'):
+        with ui.element('div').classes('pixel-border pixel-3d').style('background-color: #7c5a52; padding: 3vw; border:0.2vw solid #604c45; border-radius: 2%; min-width: 300px;'):
+            
+            ui.label('Welcome! Please, enter the login details').classes('text-2xl font-bold text-white mb-4 text-center').style('font-family: runescape;')
+            
+            ui.input(label='Username').classes('mb-4 w-full text-l').style('font-family: runescape; color: #ffd2c2;')
+            ui.input(label='Password', password=True).classes('mb-4 w-full text-l font-bold text-black').style('font-family: runescape; color: #ffd2c2;')
+            
+            ui.button('Login', on_click=lambda: ui.notify('Login clicked!'), color='#bd9a8e').classes('w-full pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 0;')
 
 async def menurollout(start, end):
     global changingui
@@ -940,6 +952,7 @@ async def menurollout(start, end):
 
 ui.sub_pages({
     '/': room_page,
+    '/login': login_page,
     '/wardrobe': skins_page,
     '/bath': bath_page,
     '/food': food_page
