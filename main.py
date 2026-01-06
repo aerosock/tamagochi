@@ -225,6 +225,7 @@ class Game:
         self.changingui = None
         self.skinnamelabel = None
         self.skinnum = skinfolderarray.index(self.curCatSkin)
+        self.isloggedin = True
         
     
     def update_transform(self):
@@ -377,7 +378,7 @@ class Game:
         ui.image(spriteCycler(0, 0, 32, endskin, scale=SPRITE_SCALE)).classes('w-25 h-25')
 
     def hud_top_left(self):
-        with ui.element('div').classes('relative'):
+        with ui.element('div').classes('relative pixelated'):
             ui.image("/textures/statusbar.png").classes('w-100 mb-2')
             with ui.element('div').classes('absolute left-33 top-9 w-63'):
                 ui.linear_progress(value=0.7, color='red', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
@@ -437,8 +438,12 @@ class Game:
             elif name == 'wardrobe': 
                 await self.wardrobe()
             elif name == 'settings': 
-                ui.notify("settings")
+                await self.settings()
 
+    async def settings(self):
+        ui.navigate.to('/settings')
+        self.current_room = 'settings'
+    
     async def home(self):
         if self.current_room != 'home':
             ui.navigate.to('/')
@@ -494,17 +499,19 @@ class Game:
     def settings_page(self):
         self.current_room = 'settings'      
         self.anim_arrays = {}
-        with ui.element('div').style('width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-family: runescape;'):
-            ui.label('Settings page').style('font-size: 3rem; color: #333; text-align: center;')
-            with ui.grid(columns=2):
+        with ui.element('div').classes('fixed inset-0 pixelated').style(' overflow:hidden; height: 104vh; display: flex; align-items: center; justify-content: center; font-family: runescape; background-color: #f0e4d7; flex-direction: column;'):
+            with ui.element('div').classes('absolute right-6 top-20 z-50'):
+                self.toolbar_right()
+            ui.label('Settings page').style('font-size: 3rem; color: #333; text-align: center; width:100vw; margin-top: 20px;')
+            with ui.grid(columns=2).style('gap: 20px; width: 70vw; margin-top: 50px; '):
                 ui.label('Change Password')
                 pwdchfld = ui.input(password=True)
-
+                
                 ui.label('Change Email')
                 mailchfld = ui.input()
 
                 ui.label ('Log Out of your account')
-                ui.button('Log Out').on('click', lambda: ui.navigate.to('/login'))
+                ui.button('Log Out').on('click', lambda: self.logout())
 
                 ui.label('Mouse sensitivity')
                 sensfld = ui.slider(min=0.5, max=2.0, value=1.0, step=0.1)
@@ -585,7 +592,7 @@ class Game:
                 self.Preload(f"{self.curCatSkin}/SleepCatb.png", 2, "sleep")
             ui.joystick(color='transparent', size=80, on_move=lambda e: self.catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
         
-        ui.timer(0, lambda: self.doAnim("idle", 0.35), once=True)
+        ui.timer(0.1, lambda: self.doAnim("idle", 0.35), once=True)
         self.update_transform()
         
         ui.timer(0, lambda: ui.run_javascript(f'window.startCatTracking("c{self.cat_visuals.id}")'), once=True)
@@ -615,13 +622,20 @@ class Game:
         asyncio.create_task(self.statuscheck())
 
     async def statuscheck(self):
-        while True:
+        while self.isloggedin:
             if self.cam_x != 0.0 or self.cam_y != 0.0 or self.cam_zoom != 1.0:
                 self.reseticon.classes(remove='opacity-0', add='opacity-100')
             else:
                 self.reseticon.classes(remove='opacity-100', add='opacity-0')
             await asyncio.sleep(0.1)
 
+    def logout(self):
+        global active_games
+        self.isloggedin = False
+        app.storage.user.clear()
+        active_games.pop(self.user.id, None)
+        ui.navigate.to('/login')
+    
     def resetbut(self):
         self.reseticon = ui.image(spriteHandler(487, 256, 22, 16, "catUI.png", scale=SPRITE_SCALE)).classes('w-10 h-10 cursor-pointer absolute opacity-0').style('left:0%; top:0%;').on('click', self.reset)
 
@@ -649,7 +663,7 @@ class Game:
                     self.Preload(f"{self.curCatSkin}/RunCatb.png", 6, "walk")
                 self.catjoy = ui.joystick(color='transparent', size=80, on_move=lambda e: self.catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
             
-            ui.timer(0, lambda: self.doAnim("idle", 0.35), once=True)
+            ui.timer(0.1, lambda: self.doAnim("idle", 0.35), once=True)
             self.update_transform()
             
             ui.timer(0, lambda: ui.run_javascript(f'window.startCatTracking("c{self.cat_visuals.id}")'), once=True)
@@ -850,7 +864,7 @@ class Game:
             with self.cat:
                 self.cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
                 
-                ui.timer(0, self.wardrobecallableprelod, once=True)
+                ui.timer(0.1, self.wardrobecallableprelod, once=True)
         ui.timer(0, lambda: ui.run_javascript(f'window.startCatTracking("c{self.cat_visuals.id}")'), once=True)
 
     def wardrobecallableprelod(self):
@@ -985,15 +999,15 @@ async def try_login(user, pwd, field, regbut):
         regbut.classes(remove='hidden', add='inline-block')
 
 async def registeriface(user, pwd):
-    with ui.dialog() as dialog, ui.card().style( 'padding: 2vw; background-color: rgb(255, 210, 194);').classes('pixel-border pixel-3d'):
-        with ui.element('div').classes('pixel-border pixel-3d').style('background-color: #7c5a52; padding: 3vw; border:0.2vw solid #604c45; border-radius: 2%; min-width: 300px;'):
-            ui.icon('cross').classes('absolute top-2 right-2 w-6 h-6 cursor-pointer').on('click', lambda: dialog.close())
-            ui.label('Welcome! Please, enter the login details').classes('text-2xl font-bold text-white mb-4 text-center').style('font-family: runescape;')
-            
-            user = ui.input(label='Username', value=user.value).classes('mb-4 w-full text-l').style('font-family: runescape; color: #ffd2c2;')
-            pwd = ui.input(label='Password', password=True, value=pwd.value).classes('mb-4 w-full text-l font-bold text-black').style('font-family: runescape; color: #ffd2c2;')
-            #add password repeat and verification. maybe also email, we'll see
-            ui.button('Register', color='#604c45').classes('w-full pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 0;').on('click', lambda: trytoreg(user, pwd, dialog))
+    with ui.dialog() as dialog, ui.card().style( 'padding: 2vw; background-color: rgb(255, 210, 194); overflow:hidden;').classes('pixel-border pixel-3d'):
+        # with ui.element('div').classes('pixel-border pixel-3d').style('background-color: #7c5a52; padding: 3vw; border:0.2vw solid #604c45; border-radius: 2%; min-width: 300px;'):
+        ui.icon('cross').classes('absolute top-2 right-2 w-6 h-6 cursor-pointer').on('click', lambda: dialog.close())
+        ui.label('Welcome! Please, enter the login details').classes('text-2xl font-bold text-white mb-4 text-center').style('font-family: runescape;')
+        
+        user = ui.input(label='Username', value=user.value).classes('mb-4 w-full text-l').style('font-family: runescape; color: #ffd2c2;')
+        pwd = ui.input(label='Password', password=True, value=pwd.value).classes('mb-4 w-full text-l font-bold text-black').style('font-family: runescape; color: #ffd2c2;')
+        #add password repeat and verification. maybe also email, we'll see
+        ui.button('Register', color='#604c45').classes('w-full pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 0;').on('click', lambda: trytoreg(user, pwd, dialog))
     dialog.open()        
             
     #i should research adding like a captcha
