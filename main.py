@@ -491,8 +491,24 @@ class Game:
         ui.navigate.to('/wardrobe')
 
 
-    def settings(self): 
-        ui.notify("settings")
+    def settings_page(self):
+        self.current_room = 'settings'      
+        self.anim_arrays = {}
+        with ui.element('div').style('width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-family: runescape;'):
+            ui.label('Settings page').style('font-size: 3rem; color: #333; text-align: center;')
+            with ui.grid(columns=2):
+                ui.label('Change Password')
+                pwdchfld = ui.input(password=True)
+
+                ui.label('Change Email')
+                mailchfld = ui.input()
+
+                ui.label ('Log Out of your account')
+                ui.button('Log Out').on('click', lambda: ui.navigate.to('/login'))
+
+                ui.label('Mouse sensitivity')
+                sensfld = ui.slider(min=0.5, max=2.0, value=1.0, step=0.1)
+
 
     def button(self, name: str):
         with ui.element('div').classes('inline-block'):
@@ -714,9 +730,8 @@ class Game:
     
         
     def food_page(self):
-        if self.current != 'foodbowl':
-            self.current = 'foodbowl'
-        self.current_room = 'food'      
+        if self.current_room != 'food':
+            self.current_room = 'food'      
         self.anim_arrays = {}
         self.baseui('bigbowl.png', 'bg-tan-200')
         with self.room:
@@ -735,7 +750,8 @@ class Game:
 
     async def scaleclickhandle(self):
         self.pressed = True
-        feedquality = ["too much food.\n Hunger set to 0, decreased Health by 10 points.", "almost the perfect amount of food.\nHunger set to 0.", "the perfect amount of food.\nHunger set to 0, added 20 Energy, added 10 Health points.", "too little food.\nHunger set to 20, Health decreased by 10 points."]
+        feedquality = ["too little food.\nHunger set to 20, Health decreased by 10 points.", "almost the perfect amount of food.\nHunger set to 0.", "the perfect amount of food.\nHunger set to 0, added 20 Energy, added 10 Health points.", "too much food.\n Hunger set to 0, decreased Health by 10 points."]
+        
         with self.room:
             if self.pos<=36 and self.pos>=32 or self.pos<27 and self.pos>=23:
                 feed = 1
@@ -787,14 +803,13 @@ class Game:
             if self.pos<=17:
                 up = True
             if up==True:
-                pos+=1
+                self.pos+=1
             elif up==False:
-                pos-=1
-            self.eatlevel.style(f'left:113%; top:{pos}%; width:10vw;')
+                self.pos-=1
+            self.eatlevel.style(f'left:113%; top:{self.pos}%; width:10vw;')
             await asyncio.sleep(0.025)
 
-    def other(self):
-        ui.label('Other page')
+    
 
 
     def bath_page(self):
@@ -932,6 +947,14 @@ async def route_food():
         return
     game.food_page()
 
+@ui.page('/settings')
+async def route_settings():
+    game = await get_current_game()
+    if not game:
+        ui.navigate.to('/login')
+        return
+    game.settings_page()
+
 @ui.page('/login')
 async def route_login():
     with ui.element('div').classes('fixed inset-0 z-50 flex items-center justify-center').style('font-family: runescape; background-color: #bd9a8e;'):
@@ -939,8 +962,8 @@ async def route_login():
             
             ui.label('Welcome! Please, enter the login details').classes('text-2xl font-bold text-white mb-4 text-center').style('font-family: runescape;')
             
-            user = ui.input(label='Username', value=user.value).classes('mb-4 w-full text-l').style('font-family: runescape; color: #ffd2c2;')
-            pwd = ui.input(label='Password', password=True, value=pwd.value).classes('mb-4 w-full text-l font-bold text-black').style('font-family: runescape; color: #ffd2c2;')
+            user = ui.input(label='Username').classes('mb-4 w-full text-l').style('font-family: runescape; color: #ffd2c2;')
+            pwd = ui.input(label='Password', password=True).classes('mb-4 w-full text-l font-bold text-black').style('font-family: runescape; color: #ffd2c2;')
 
             ui.button('Login', color='#bd9a8e').classes('w-full pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 0;').on('click', lambda: try_login(user, pwd, errortext, regbut))
             errortext = ui.label(' ').style('font-size: 1rem; color: red; margin: 0.8rem 0;')
@@ -948,7 +971,6 @@ async def route_login():
             
 active_games = {}
 
-@ui.refreshable
 async def try_login(user, pwd, field, regbut):
     user = await User.filter(username=user.value).first()
     if user and user.password == pwd.value:
@@ -972,7 +994,7 @@ async def registeriface(user, pwd):
             pwd = ui.input(label='Password', password=True, value=pwd.value).classes('mb-4 w-full text-l font-bold text-black').style('font-family: runescape; color: #ffd2c2;')
             #add password repeat and verification. maybe also email, we'll see
             ui.button('Register', color='#604c45').classes('w-full pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 0;').on('click', lambda: trytoreg(user, pwd, dialog))
-            
+    dialog.open()        
             
     #i should research adding like a captcha
     async def trytoreg(user, pwd, dialog):
