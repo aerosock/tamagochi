@@ -47,6 +47,8 @@ curCatSkin = skinfolderarray[skinnum - 1]
 
 ui.add_head_html("""
 <style>
+.text-my-brown { color: #bd9a8e !important; }
+.text-my-grey  { color: #cccccc !important; }
 .pixel-border {
 	clip-path: polygon(
 		0px 4px,
@@ -212,8 +214,9 @@ class Game:
         self.cam_x = 0.0 
         self.cam_y = 0.0
         self.cam_zoom = 1.0
+        self.cam_zoom_sens = 1.0
         self.cat_x = 50.0 
-        self.cat_y = 55.0    
+        self.cat_y = 55.0
         self.pos = 55
         self.water = False
         self.readytoeat = False
@@ -235,7 +238,12 @@ class Game:
 
     def on_wheel(self, e):
         dy = e.args.get('deltaY', 0)
-        self.cam_zoom = clamp(self.cam_zoom * (0.9 if dy > 0 else 1.1))
+        zoom_factor = 1.1 ** self.cam_zoom_sens
+        if dy > 0:
+            self.cam_zoom = clamp(self.cam_zoom / zoom_factor)
+        else:
+            self.cam_zoom = clamp(self.cam_zoom * zoom_factor)
+            
         self.update_transform()
 
     def set_cat_orientation(self, facing_right: bool):
@@ -426,7 +434,6 @@ class Game:
                 n_dn.classes(remove='opacity-0', add='opacity-100')
                 n_icon.style('transform: translate(-50%, -57%) perspective(600px) scaleY(1.02);')
                 
-            self.current_room = name
             if name == 'home': 
                 await self.home()
             elif name == 'shower': 
@@ -503,18 +510,18 @@ class Game:
             with ui.element('div').classes('absolute right-6 top-20 z-50'):
                 self.toolbar_right()
             ui.label('Settings page').style('font-size: 3rem; color: #333; text-align: center; width:100vw; margin-top: 20px;')
-            with ui.grid(columns=2).style('gap: 20px; width: 70vw; margin-top: 50px; '):
+            with ui.grid(columns=2).style('gap: 20px; width: 70vw; margin: 50px 0; ').classes('items-center'):
                 ui.label('Change Password')
-                pwdchfld = ui.input(password=True)
+                pwdchfld = ui.input(password=True).style('font-size: 1.2rem; padding: 10px; width: 100%; border: 2px solid #ccc; border-radius: 5px;')
                 
                 ui.label('Change Email')
-                mailchfld = ui.input()
+                mailchfld = ui.input().style('font-size: 1.2rem; padding: 10px; width: 100%; border: 2px solid #ccc; border-radius: 5px;')
 
                 ui.label ('Log Out of your account')
-                ui.button('Log Out').on('click', lambda: self.logout())
+                ui.button('Log Out', color='#bd9a8e').on('click', lambda: self.logout())
 
                 ui.label('Mouse sensitivity')
-                sensfld = ui.slider(min=0.5, max=2.0, value=1.0, step=0.1)
+                ui.slider(min=0.5, max=2.0, value=self.cam_zoom_sens, step=0.1).bind_value_to(self, 'cam_zoom_sens').style('color: primary;')
 
 
     def button(self, name: str):
@@ -1018,6 +1025,7 @@ async def registeriface(user, pwd):
         ui.refreshable(try_login)
                               
 async def get_current_game():
+    ui.colors(primary='#bd9a8e')
     user_id = app.storage.user.get('user_id')
     if not user_id:
         return None
@@ -1055,5 +1063,6 @@ async def get_current_game():
 
 if __name__ in {"__main__", "__mp_main__"}:
     app.on_startup(init_db)
-    app.on_shutdown(lambda: Tortoise.close_connections())
+    app.on_shutdown(Tortoise.close_connections)
+
     ui.run(native=False, storage_secret='abcd')
