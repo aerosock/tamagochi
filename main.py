@@ -19,6 +19,8 @@ class User(models.Model):
     password = fields.CharField(max_length=100) 
     equipped_skin = fields.CharField(max_length=50, default="Classical Cat")
     hunger = fields.IntField(default=100)
+    # isLoggedIn = fields.BooleanField(default=False)
+    
     
 async def init_db():
     await Tortoise.init(db_url='sqlite://db.sqlite3', modules={'models': ['__main__']})
@@ -199,7 +201,7 @@ class Game:
 
         self.user = user
         self.curCatSkin = user.equipped_skin
-        
+        self.move_task = None
         self.evading = None
         self.cat_layer = None
         self.canvas = None
@@ -346,7 +348,8 @@ class Game:
         self.update_transform()
 
     async def moveCat(self, target_x_pct, target_y_pct, speed=1.0, run_anim="walk", end_anim="idle", restore_tracking=True, animtime1=0.15, animtime2=0.35, delay=0.0):
-        self.cat.client.run_javascript('window.setTracking(false)')
+        if self.cat:
+            self.cat.client.run_javascript('window.setTracking(false)')
 
         if target_x_pct < self.cat_x:
             self.set_cat_orientation(False)
@@ -363,15 +366,21 @@ class Game:
         
         step_size = 0.5 * speed
         steps = int(dist / step_size)
-        dx /= steps
-        dy /= steps
-        for _ in range(steps):
-            self.cat_x += dx
-            self.cat_y += dy
-            
-            self.cat.style(f'left:{self.cat_x}%; top:{self.cat_y}%;')
-            await asyncio.sleep(0.016) 
 
+        # SAFETY CHECK: Only loop if steps > 0
+        if steps > 0:
+            dx /= steps
+            dy /= steps
+            for _ in range(steps):
+                self.cat_x += dx
+                self.cat_y += dy
+                
+                # Check if self.cat still exists (user might have navigated away)
+                if self.cat:
+                    self.cat.style(f'left:{self.cat_x}%; top:{self.cat_y}%;')
+                await asyncio.sleep(0.016) 
+
+        # Snap to final position
         self.cat_x = target_x_pct
         self.cat_y = target_y_pct
         if self.cat:
@@ -470,7 +479,7 @@ class Game:
             asyncio.create_task(self.moveCat(50, 55, speed=1.5, run_anim="walk"))
     
     async def sleep(self): 
-        if self.current_room != 'home':
+        if self.current_room != 'home' and self.current_room != 'sleep':
             ui.navigate.to('/')
             self.current_room = 'home'
         if self.current_room != 'sleep':
@@ -579,14 +588,18 @@ class Game:
             idx += 1
             await asyncio.sleep(0.2)
 
+
+    
     def room_content(self):
-        with ui.element('div').classes('absolute cursor-pointer').style('left: 48%; top: 40%; width: 20%; height: 18%;').on('click', self.sleep):
+        with ui.element('div').classes('absolute cursor-pointer z-20 pointer-events-auto') \
+            .style('left: 48%; top: 40%; width: 20%; height: 18%;') \
+            .on('click.stop', self.sleep):
             self.bedUI()
 
         with ui.element('div').classes('relative').style('left: 35%; top: 72.5%; width: 20%; height: 10%;'):
             self.bowlsUI()
         
-        self.cat = ui.element('div').classes('absolute').style(
+        self.cat = ui.element('div').classes('absolute z-30').style(
             f'left:{self.cat_x}%; top:{self.cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;'
         )
         with self.cat:
@@ -630,13 +643,28 @@ class Game:
         asyncio.create_task(self.statuscheck())
 
     async def mouse_handler(self, e: events.MouseEventArguments):
-        actual_width = await self.canvas.client.run_javascript(f'return document.getElementById("c{self.canvas.id}").clientWidth;')
-        targetx = max(0, min(100, e.image_x / actual_width * 100))
-        targety = max(0, min(100, e.image_y / actual_width * 100))    
-        self.roomim.content = f'<circle cx="{e.image_x}" cy="{e.image_y}" r="15" fill="none" stroke="Gray" stroke-width="4" />'
+        if self.move_task and not self.move_task.done():
+            self.move_task.cancel()
+
+       
+        floor_min_y = 50   
+        floor_max_y = 75  
+        floor_min_x = 15   
+        floor_max_x = 85   
+        click_x_pct = (e.image_x / roomsize) * 100
+        click_y_pct = (e.image_y / roomsize) * 100
+        dest_x_pct = max(floor_min_x, min(floor_max_x, click_x_pct))
+        dest_y_pct = max(floor_min_y, min(floor_max_y, click_y_pct))
+        cat_width_pct = 16
+        cat_height_pct = 16 
+
+        target_x = dest_x_pct - (cat_width_pct / 2)
+        target_y = dest_y_pct - (cat_height_pct) + 2
         
-        ui.timer(1, lambda: setattr(self.roomim, 'content', ''), once=True)
-        asyncio.create_task(self.moveCat(targetx, targety, speed=1.5, run_anim="walk", end_anim="idle"))
+        self.roomim.content = f'<circle cx="{dest_x_pct * (roomsize/100)}" cy="{dest_y_pct * (roomsize/100)}" r="5" fill="none" stroke="#bd9a8e" stroke-width="3" />'
+        ui.timer(0.5, lambda: setattr(self.roomim, 'content', ''), once=True)
+        
+        self.move_task = asyncio.create_task(self.moveCat(target_x, target_y, speed=1.3, run_anim="walk", end_anim="idle"))
 
     async def statuscheck(self):
         while self.isloggedin:
