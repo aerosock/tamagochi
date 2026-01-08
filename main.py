@@ -2,7 +2,7 @@ from sys import exit
 import datetime as dt
 import json
 import os
-from nicegui import ui, app
+from nicegui import ui, app, events
 from PIL import Image
 import pathlib
 import asyncio
@@ -11,6 +11,7 @@ import random
 from tortoise import Tortoise, fields, models
 from passlib.context import CryptContext
 SPRITE_SCALE = 4
+roomsize = 512
 
 class User(models.Model):
     id = fields.IntField(pk=True)
@@ -623,10 +624,19 @@ class Game:
                 self.canvas.on('wheel', self.on_wheel)
                 
                 with self.canvas:
-                    ui.image(f'/textures/{room_texture}').classes('absolute inset-0 w-full h-full object-contain select-none pointer-events-none')
+                    self.roomim = ui.interactive_image(f'/textures/{room_texture}', on_mouse=self.mouse_handler, events=['mousedown', 'mouseup'], cross=False, sanitize=False)
                     
-                    self.room = ui.element('div').classes('absolute inset-0 pointer-events-auto')
+                    self.room = ui.element('div').classes('absolute inset-0 pointer-events-none')
         asyncio.create_task(self.statuscheck())
+
+    async def mouse_handler(self, e: events.MouseEventArguments):
+        actual_width = await self.canvas.client.run_javascript(f'return document.getElementById("c{self.canvas.id}").clientWidth;')
+        targetx = max(0, min(100, e.image_x / actual_width * 100))
+        targety = max(0, min(100, e.image_y / actual_width * 100))    
+        self.roomim.content = f'<circle cx="{e.image_x}" cy="{e.image_y}" r="15" fill="none" stroke="Gray" stroke-width="4" />'
+        
+        ui.timer(1, lambda: setattr(self.roomim, 'content', ''), once=True)
+        asyncio.create_task(self.moveCat(targetx, targety, speed=1.5, run_anim="walk", end_anim="idle"))
 
     async def statuscheck(self):
         while self.isloggedin:
