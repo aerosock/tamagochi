@@ -367,7 +367,6 @@ class Game:
         step_size = 0.5 * speed
         steps = int(dist / step_size)
 
-        # SAFETY CHECK: Only loop if steps > 0
         if steps > 0:
             dx /= steps
             dy /= steps
@@ -375,12 +374,10 @@ class Game:
                 self.cat_x += dx
                 self.cat_y += dy
                 
-                # Check if self.cat still exists (user might have navigated away)
                 if self.cat:
                     self.cat.style(f'left:{self.cat_x}%; top:{self.cat_y}%;')
                 await asyncio.sleep(0.016) 
 
-        # Snap to final position
         self.cat_x = target_x_pct
         self.cat_y = target_y_pct
         if self.cat:
@@ -500,13 +497,14 @@ class Game:
             asyncio.create_task(self.foodbowl())
     
     
-    async def eatasync(self):
-        self.readytoeat = True
+    async def waterbowl(self):
+        self.food_mode = 'drink'
         
         await asyncio.gather(
-            self.cameraAction(-15, -25, 2.0, speed=2.0),
-            self.moveCat(45, 61, speed=1.5, run_anim="walk")
+            self.cameraAction(-5, -5, 1.5, speed=2.0),
+            self.moveCat(42, 60, speed=1.5, run_anim="walk")
         )
+    
         ui.navigate.to('/food')
 
     async def wardrobe(self): 
@@ -568,8 +566,15 @@ class Game:
             return
         ui.navigate.to('/food')
 
-    def waterbowl(self):
-        ui.notify("Water bowl clicked")
+    async def waterbowl(self):
+        self.food_mode = 'drink'
+        
+        await asyncio.gather(
+            self.cameraAction(-5, -5, 1.5, speed=2.0),
+            self.moveCat(42, 60, speed=1.5, run_anim="walk")
+        )
+        
+        ui.navigate.to('/food')
 
     def bowlsUI(self):
         with ui.image(spriteHandler(261, 332, 53, 44, "Furnitures.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:5%; width:5vw;'):
@@ -619,7 +624,6 @@ class Game:
         ui.timer(0, lambda: ui.run_javascript(f'window.startCatTracking("c{self.cat_visuals.id}")'), once=True)
 
     def baseui(self, room_texture='Room.png', bg='bg-blue-200'):
-
         with ui.element('div').classes(f'fixed inset-0 {bg} overflow-hidden pixelated'):
             with ui.element('div').classes('absolute left-6 top-6 z-50'):
                 self.hud_top_left()
@@ -631,21 +635,28 @@ class Game:
                 self.bottom_right_button()
             with ui.element('div').classes('absolute left-10 bottom-20 z-50'):
                 self.resetbut()
+            
             room_wrapper = ui.element('div').classes('absolute inset-0 flex items-center justify-center z-0 pointer-events-none')
             with room_wrapper:
                 self.canvas = ui.element('div').classes('relative w-[min(50vw,1800px)] aspect-[1/1] bg-transparent pointer-events-auto').style('transform-origin: center center; transition: transform 80ms ease-out;')
                 self.canvas.on('wheel', self.on_wheel)
                 
                 with self.canvas:
-                    self.roomim = ui.interactive_image(f'/textures/{room_texture}', on_mouse=self.mouse_handler, events=['mousedown', 'mouseup'], cross=False, sanitize=False)
+                    if room_texture in ['bigbowl.png', 'waterbowl.png']:
+                        self.roomim = ui.image(f'/textures/{room_texture}').classes('absolute inset-0 w-full h-full object-contain select-none pointer-events-none')
+                    else:
+                        self.roomim = ui.interactive_image(f'/textures/{room_texture}', on_mouse=self.mouse_handler, events=['mousedown', 'mouseup'], cross=False, sanitize=False)
                     
                     self.room = ui.element('div').classes('absolute inset-0 pointer-events-none')
+        
         asyncio.create_task(self.statuscheck())
 
     async def mouse_handler(self, e: events.MouseEventArguments):
+        if self.current_room == 'food': 
+            return
+
         if self.move_task and not self.move_task.done():
             self.move_task.cancel()
-
        
         floor_min_y = 50   
         floor_max_y = 75  
@@ -792,20 +803,94 @@ class Game:
         if self.current_room != 'food':
             self.current_room = 'food'      
         self.anim_arrays = {}
-        self.baseui('bigbowl.png', 'bg-tan-200')
+        if not hasattr(self, 'food_mode'):
+            self.food_mode = 'eat'
+        texture = 'waterbowl.png' if self.food_mode == 'drink' else 'bigbowl.png'
+        
+        self.baseui(texture, 'bg-tan-200')
         with self.room:
             self.foodui()
-
+    
     def foodui(self):
         with self.room:
-            with ui.element('div').classes('absolute object-contain').style('width: 21vw; height: 30vh; right:28%; top:30%;'):  
+            with ui.element('div').classes('absolute').style('width: 21vw; height: 21vw; right:20%; top:25%;'):  
                 self.Preload("edafood.png", 3, "foodadd", 256, 256)
-            self.blackcat = ui.element('div').classes('absolute').style('top:120%; width:70vw; transform: translateX(-10%);') #20 good 120 out
+            
+            self.blackcat = ui.element('div').classes('absolute').style('top:120%; width:70vw; transform: translateX(-10%);') 
             with self.blackcat:     
                 ui.image("/textures/eatingbro.png").classes('object-contain')
-            ui.image("/textures/catscale.png").classes('object-contain absolute').style('left:95%; top:10%; width:20vw;').on('click', self.scaleclickhandle)
-            self.eatlevel = ui.image(spriteHandler(267, 708, 62, 25, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:113%; top:55%; width:10vw;') # bottom 55%, top 17%
+            
+            self.scale_img = ui.image("/textures/catscale.png").classes('object-contain absolute pointer-events-auto cursor-pointer').style('left:95%; top:10%; width:20vw;').on('click', self.scaleclickhandle)
+            self.eatlevel = ui.image(spriteHandler(267, 708, 62, 25, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:113%; top:55%; width:10vw;') 
+            
+            self.water_zone = ui.element('div').classes('absolute cursor-pointer pointer-events-auto hidden').style('left: 20%; top: 30%; width: 60%; height: 50%;').on('click', self.drink_action)
+
+            self.arrow_to_drink = ui.icon('arrow_back', color='white').classes('absolute cursor-pointer pointer-events-auto pixel-3d').style('left: 5%; top: 50%; font-size: 3rem; background-color: #bd9a8e; padding: 0.5rem; border: 2px solid #7c5a52; border-radius: 50%;').on('click', lambda: self.switch_food_mode('drink'))
+
+            self.arrow_to_eat = ui.icon('arrow_forward', color='white').classes('absolute cursor-pointer pointer-events-auto pixel-3d hidden z-50').style('right: 5%; top: 50%; font-size: 3rem; background-color: #bd9a8e; padding: 0.5rem; border: 2px solid #7c5a52; border-radius: 50%;').on('click', lambda: self.switch_food_mode('eat'))
+
+            if self.oscillate_task and not self.oscillate_task.done():
+                self.oscillate_task.cancel()
+            self.oscillate_task = asyncio.create_task(self.oscilatefood())
+            self.switch_food_mode(self.food_mode)
+            
+    def foodui(self):
+        with self.room:
+            with ui.element('div').classes('absolute').style('width: 21vw; height: 21vw; right:20%; top:25%;'):  
+                self.Preload("edafood.png", 3, "foodadd", 256, 256)
+            
+            self.blackcat = ui.element('div').classes('absolute z-40').style('top:120%; width:70vw; transform: translateX(-10%);') 
+            with self.blackcat:     
+                ui.image("/textures/eatingbro.png").classes('object-contain')
+            
+            self.scale_img = ui.image("/textures/catscale.png").classes('object-contain absolute pointer-events-auto cursor-pointer z-40').style('left:95%; top:10%; width:20vw;').on('click', self.scaleclickhandle)
+            self.eatlevel = ui.image(spriteHandler(267, 708, 62, 25, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain absolute z-40').style('left:113%; top:55%; width:10vw;') 
+            
+            self.water_zone = ui.element('div').classes('absolute cursor-pointer pointer-events-auto hidden z-40').style('left: 20%; top: 40%; width: 60%; height: 40%;').on('click', self.drink_action)
+
+            self.arrow_to_drink = ui.icon('arrow_back', color='white').classes('absolute cursor-pointer pointer-events-auto pixel-3d z-50').style('left: 5%; top: 50%; font-size: 3rem; background-color: #bd9a8e; padding: 0.5rem; border: 2px solid #7c5a52; border-radius: 50%;').on('click', lambda: self.switch_food_mode('drink'))
+
+            self.arrow_to_eat = ui.icon('arrow_forward', color='white').classes('absolute cursor-pointer pointer-events-auto pixel-3d hidden z-50').style('right: 5%; top: 50%; font-size: 3rem; background-color: #bd9a8e; padding: 0.5rem; border: 2px solid #7c5a52; border-radius: 50%;').on('click', lambda: self.switch_food_mode('eat'))
+
             asyncio.create_task(self.oscilatefood())
+
+    def switch_food_mode(self, mode):
+        self.food_mode = mode
+        if mode == 'drink':
+            self.roomim.set_source('/textures/waterbowl.png')
+            self.scale_img.classes(remove='block', add='hidden')
+            self.eatlevel.classes(remove='block', add='hidden')
+            self.arrow_to_drink.classes(remove='block', add='hidden')
+         
+            self.water_zone.classes(remove='hidden', add='block')
+            self.arrow_to_eat.classes(remove='hidden', add='block')
+        else: 
+            self.roomim.set_source('/textures/bigbowl.png')
+      
+            self.scale_img.classes(remove='hidden', add='block')
+            self.eatlevel.classes(remove='hidden', add='block')
+            self.arrow_to_drink.classes(remove='hidden', add='block')
+   
+            self.water_zone.classes(remove='block', add='hidden')
+            self.arrow_to_eat.classes(remove='block', add='hidden')
+
+    async def drink_action(self):
+        for x in range(120, 20, -1):
+             self.blackcat.style(f'top:{x}%; width:70vw; transform: translateX(-10%);')
+             await asyncio.sleep(0.01)
+
+        await asyncio.sleep(1.5)
+
+        for x in range(20, 120):
+             self.blackcat.style(f'top:{x}%; width:70vw; transform: translateX(-10%);')
+             await asyncio.sleep(0.01)
+
+        with ui.dialog() as dialog, ui.card().style( 'padding: 2vw; background-color: rgb(255, 210, 194);').classes('pixel-border pixel-3d'):
+                ui.label("You gave your cat water!\nThirst restored.").classes('text-xl font-bold ').style('font-family: runescape; color: #7c5a52; white-space: pre-wrap;')
+                ui.button('Close', on_click=dialog.close, color='rgb(255, 210, 194)').style('background-color: #7c5a52; color: white; font-family: runescape; font-size: 1.2vw; padding: 0.5vw 1vw; border-radius: none; margin-top: 1vw;').classes('pixel-border pixel-3d')
+        await dialog
+
+        self.switch_food_mode('eat')
 
     async def scaleclickhandle(self):
         self.pressed = True
