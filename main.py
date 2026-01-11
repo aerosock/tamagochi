@@ -1,8 +1,7 @@
-from nicegui import ui, app
+from nicegui import ui, app, events
 from tortoise import Tortoise
 import pathlib
 
-# --- IMPORTS FROM OUR NEW FILES ---
 from models import User, init_db
 from game import Game
 
@@ -10,10 +9,18 @@ from game import Game
 BASE = pathlib.Path(__file__).parent
 app.add_static_files('/static', str(BASE / 'static'))      
 app.add_static_files('/textures', str(BASE / 'textures'))  
-
+active_games = {}
 
 ui.add_head_html("""
 <style>
+@keyframes glow-pulse {
+  0% { box-shadow: 0 0 5px #fff; }
+  50% { box-shadow: 0 0 20px #fff, 0 0 10px #bd9a8e; }
+  100% { box-shadow: 0 0 5px #fff; }
+}
+.glow-effect {
+    animation: glow-pulse 1s infinite;
+}
 .text-my-brown { color: #bd9a8e !important; }
 .text-my-grey  { color: #cccccc !important; }
 .pixel-border {
@@ -151,6 +158,7 @@ async def route_home():
     if not game:
         ui.navigate.to('/login')
         return
+    ui.keyboard(on_key=handle_key)
     game.room_page()
 
 @ui.page('/bath')
@@ -197,7 +205,7 @@ async def route_login():
             errortext = ui.label(' ').style('font-size: 1rem; color: red; margin: 0.8rem 0;')
             regbut = ui.button('Register', on_click=lambda: registeriface(user, pwd), color='turquoise').classes('w-full mt-2 text-sm hidden pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1rem; padding: 8px; border-radius: 0; transition: opacity 0.5s;')
             
-active_games = {}
+
 
 async def try_login(user_input, pwd_input, field, regbut):
     user = await User.filter(username=user_input.value).first()
@@ -221,11 +229,10 @@ async def registeriface(user, pwd):
         
         user = ui.input(label='Username', value=user.value).classes('mb-4 w-full text-l').style('font-family: runescape; color: #ffd2c2;')
         pwd = ui.input(label='Password', password=True, value=pwd.value).classes('mb-4 w-full text-l font-bold text-black').style('font-family: runescape; color: #ffd2c2;')
-        #add password repeat and verification. maybe also email, we'll see
+   
         ui.button('Register', color='#604c45').classes('w-full pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 0;').on('click', lambda: trytoreg(user, pwd, dialog))
     dialog.open()        
             
-    #i should research adding like a captcha
     async def trytoreg(user, pwd, dialog):
         await User.create(username=user.value, password=pwd.value)
         dialog.close()
@@ -248,6 +255,21 @@ async def get_current_game():
         return new_game
     
     return None
+
+def handle_key(e: events.KeyEventArguments):
+    if not e.action.keydown: return
+    
+    user_id = app.storage.user.get('user_id')
+    if user_id in active_games:
+        game = active_games[user_id]
+        if game.petting_mode:
+            key_value = str(e.key)
+            if hasattr(e.key, 'name'):
+                key_value = e.key.name
+            
+            game.handle_rhythm_input(key_value.lower())
+
+
 
 if __name__ in {"__main__", "__mp_main__"}:
     app.on_startup(init_db)

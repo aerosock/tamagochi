@@ -1,14 +1,12 @@
 import asyncio
 import random
+import time
 import pathlib
 from itertools import cycle
 from PIL import Image
 from nicegui import ui, app, events
 
-# Import the User model from our new models file
 from models import User
-
-# --- CONSTANTS & HELPERS ---
 SPRITE_SCALE = 4
 roomsize = 512
 BASE = pathlib.Path(__file__).parent
@@ -36,16 +34,20 @@ def spriteCycler(x, y, step, path, scale: int = 1, ystep=32):
         img = img.resize((img.width * scale, img.height * scale), resample=Image.NEAREST)
     return img
 
-# --- GAME CLASS ---
+class RhythmTarget:
+    def __init__(self, key_char, prog, container):
+        self.el = container
+        self.prog = prog
+        self.key = key_char
+        self.start_time = time.time()
+        self.clicked = False
+
 class Game:
-    # Added on_logout_callback so we can tell main.py to remove this game from the list
     def __init__(self, user: User, on_logout_callback):
         self.user = user
-        self.on_logout_callback = on_logout_callback # Save the callback
+        self.on_logout_callback = on_logout_callback
         self.curCatSkin = user.equipped_skin
         
-        self.user = user
-        self.curCatSkin = user.equipped_skin
         self.move_task = None
         self.evading = None
         self.cat_layer = None
@@ -78,6 +80,16 @@ class Game:
         self.skinnum = skinfolderarray.index(self.curCatSkin)
         self.isloggedin = True
         self.oscillate_task = None
+
+        self.petting_mode = False
+        self.petting_score = 0
+        self.active_targets = [] 
+        self.rhythm_task = None
+        self.stroke_phase_active = False
+        self.stroke_counter = 0
+        self.last_stroke_y = 0
+        self.score_bar = None
+        self.petting_overlay = None
         
     
     def update_transform(self):
@@ -137,19 +149,31 @@ class Game:
                 await asyncio.sleep(time)
                 
     def catPet(self, coord):
-        if self.current_room == 'home':
+        if self.petting_mode and self.stroke_phase_active:
+            curr_y = coord.y
+            if self.last_stroke_y > 0.3 and curr_y < -0.3:
+                self.stroke_counter += 1
+                self.update_petting_score(1)
+                self.doAnim("pet", 0.1, cancel_current=True)
+            elif self.last_stroke_y < -0.3 and curr_y > 0.3:
+                self.stroke_counter += 1
+                self.update_petting_score(1)
+                self.doAnim("pet", 0.1, cancel_current=True)
+            
+            self.last_stroke_y = curr_y
+            return
+
+        if self.current_room == 'home' and not self.petting_mode:
             if self.petState == 0:
                 if coord.y > 0.5: 
                     self.petState = 3
                 elif coord.y < -0.5: 
                     self.petState = 1
             if self.petState == 1 and coord.y > 0.5: 
-                print("petanim")
                 self.petAnim()
             if self.petState == 3 and coord.y < -0.5: 
-                print("petanim")
                 self.petAnim()
-            
+
     def petAnim(self):
         if self.pet_timeout_task:
             self.pet_timeout_task.cancel()
@@ -165,7 +189,7 @@ class Game:
         await asyncio.sleep(0.2) 
         self.petState = 0
         self.pet_timeout_task = None
-        if self.current_room != 'bath':
+        if self.current_room != 'bath' and not self.petting_mode:
             self.doAnim("idle", 0.35)
 
     async def cameraAction(self, target_x_pct, target_y_pct, target_zoom, speed=2.0):
@@ -444,8 +468,217 @@ class Game:
             idx += 1
             await asyncio.sleep(0.2)
 
+    async def start_petting_game(self):
+        if self.petting_mode: return
+        self.petting_mode = True
+        self.petting_score = 0
+        self.active_targets = []
+        
+        if self.move_task and not self.move_task.done():
+            self.move_task.cancel()
+        
+        self.petting_overlay = ui.element('div').classes('absolute inset-0 pointer-events-none z-40')
+        with self.petting_overlay:
+            with ui.element('div').classes('absolute right-20 top-1/4 h-1/2 w-8 bg-black/30 border-2 border-white rounded'):
+                self.score_bar = ui.linear_progress(value=0.0, show_value=False, color='pink').props('vertical').classes('absolute inset-0 w-full h-full')
+        
+        cat_size = 15 
+        center_x = self.cat_x + (cat_size / 2)
+        center_y = self.cat_y + (cat_size / 2)
 
-    
+        zoom_target_x = -center_x + 50 
+        zoom_target_y = -center_y + 50
+        
+        await self.cameraAction(zoom_target_x, zoom_target_y, 2.5, speed=3.0)
+        
+        self.rhythm_task = asyncio.create_task(self.rhythm_loop())
+
+    async def stop_petting_game(self):
+        self.petting_mode = False
+        if self.rhythm_task:
+            self.rhythm_task.cancel()
+        if self.petting_overlay:
+            self.petting_overlay.delete()
+            self.petting_overlay = None
+        
+        for t in self.active_targets:
+            try: t['el'].delete()
+            except: pass
+        self.active_targets = []
+        
+        ui.notify(f"Game Over! Score: {int(self.petting_score * 100)}")
+        await self.cameraAction(0, 0, 1.0, speed=2.0)
+
+    def update_petting_score(self, points):
+        self.petting_score += (points / 100.0)
+        self.petting_score = max(0.0, min(1.0, self.petting_score))
+        if self.score_bar:
+            self.score_bar.value = self.petting_score
+            
+        if self.petting_score >= 1.0:
+            asyncio.create_task(self.stop_petting_game())
+
+    async def rhythm_loop(self):
+        try:
+            while self.petting_mode:
+                if random.random() < 0.08:
+                    await self.stroke_phase()
+                else:
+                    num = random.randint(1, 3)
+                    for _ in range(num):
+                        if not self.petting_mode: break
+                        self.spawn_rhythm_target()
+                        await asyncio.sleep(random.uniform(0.4, 0.8))
+                
+                if not self.petting_mode: break
+                await asyncio.sleep(random.uniform(0.5, 1.5))
+        except asyncio.CancelledError:
+            pass
+
+    def spawn_rhythm_target(self):
+        
+        key_map = {
+            'd': {'color': 'red-500', 'code': 'd'},
+            'f': {'color': 'green-500', 'code': 'f'},
+            'k': {'color': 'yellow-500', 'code': 'k'},
+            'l': {'color': 'blue-500', 'code': 'l'}
+        }
+        key_char = random.choice(list(key_map.keys()))
+        data = key_map[key_char]
+        
+        pos_x = 50 + random.uniform(-15, 15) 
+        pos_y = 50 + random.uniform(-15, 15)
+        
+        with self.petting_overlay:
+            container = ui.element('div').classes('absolute w-16 h-16 pointer-events-auto cursor-pointer').style(f'left: {pos_x}%; top: {pos_y}%; transform: translate(-50%, -50%);')
+            
+            with container:
+                prog = ui.circular_progress(value=0, min=0, max=1, show_value=False, color=data['color']) \
+                    .classes('absolute inset-0 w-full h-full') \
+                    .props('animation-speed="0" thickness=0.2') 
+                
+                ui.label(data['code'].upper()).classes('absolute inset-0 flex items-center justify-center font-bold text-white text-xl drop-shadow-md').style('background-color: rgba(0, 0, 0, 0.3); border-radius: 50%; width: 100%; height: 100%;')
+        
+        curtarget = RhythmTarget(key_char, prog, container)
+        
+        container.on('click', lambda: self.handle_click_input(curtarget))
+        
+        self.active_targets.append(curtarget)
+        asyncio.create_task(self.animate_target(curtarget))
+        # target = {
+        #     'el': container,
+        #     'prog': prog,
+        #     'key': key_char,
+        #     'start_time': time.time(),
+        #     'clicked': False
+        # }
+        
+        
+        
+        # Add click handler specifically for mouse
+        container.on('click', lambda: self.handle_click_input(curtarget))
+        
+        self.active_targets.append(curtarget)
+        asyncio.create_task(self.animate_target(curtarget))
+
+    async def animate_target(self, target):
+        duration = 1.2
+        late_duration = 0.4
+        
+        start = target.start_time
+        while True:
+            elapsed = time.time() - start
+            if target.clicked: break
+            
+            val = elapsed / duration
+            if val >= 1.0: break
+            
+            target.prog.value = val
+            await asyncio.sleep(0.016)
+            
+        if not target.clicked and self.petting_mode:
+            target.prog.value = 0
+            target.prog.props(f'color="red-14"')
+                    
+            late_start = time.time()
+            while True:
+                elapsed_late = time.time() - late_start
+                if target.clicked: break
+                
+                val = elapsed_late / late_duration
+                if val >= 1.0: 
+                    self.update_petting_score(-6)
+                    target.el.style('opacity: 0; transition: opacity 0.2s;')
+                    break
+                
+                target.prog.value = val
+                await asyncio.sleep(0.016)
+
+        if target in self.active_targets:
+            self.active_targets.remove(target)
+        await asyncio.sleep(0.2)
+        try: target.el.delete()
+        except: pass
+
+    def handle_rhythm_input(self, key):
+        now = time.time()
+        best_target = None
+        
+        for t in self.active_targets:
+            if t.key == key and not t.clicked:
+                best_target = t
+                break
+        
+        if best_target:
+            self.process_hit(best_target, now)
+        else:
+            self.update_petting_score(-6)
+
+    def handle_click_input(self, target):
+        if not target.clicked:
+            self.process_hit(target, time.time())
+
+    def process_hit(self, target, hit_time):
+        target.clicked = True
+        elapsed = hit_time - target.start_time
+        
+        
+        if 0.6 <= elapsed <= 0.8:
+            self.update_petting_score(4)
+            target.el.classes('scale-125 transition-transform')
+            target.prog.props('color="white"')
+        elif (0.5 <= elapsed < 0.6) or (0.8 < elapsed <= 0.9):
+            self.update_petting_score(2)
+        else:
+            self.update_petting_score(-6)
+            target.el.style('opacity: 0.5;')
+            
+        target.el.style('transition: transform 0.1s; transform: translate(-50%, -50%) scale(1.5); opacity: 0;')
+
+    async def stroke_phase(self):
+        self.stroke_phase_active = True
+        self.stroke_counter = 0
+        
+        await asyncio.sleep(0.8)
+        
+        if not self.petting_mode: return
+
+        with self.petting_overlay:
+            arrow = ui.label('↕').style('font-size: 5rem; color: white; left: 50%; top: 50%; position: absolute; transform: translate(-50%, -50%); text-shadow: 2px 2px 4px #000;')
+        
+        start_time = time.time()
+        while time.time() - start_time < 3.0:
+            if not self.petting_mode: break
+            await asyncio.sleep(0.1)
+        
+        arrow.classes('glow-effect')
+        await asyncio.sleep(0.5)
+        arrow.delete()
+        
+        await asyncio.sleep(0.8)
+        self.stroke_phase_active = False
+
+
     def room_content(self):
         with ui.element('div').classes('absolute cursor-pointer z-20 pointer-events-auto') \
             .style('left: 48%; top: 40%; width: 20%; height: 18%;') \
@@ -457,9 +690,9 @@ class Game:
         
         self.cat = ui.element('div').classes('absolute z-30').style(
             f'left:{self.cat_x}%; top:{self.cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;'
-        )
+        ).on('click.stop', self.start_petting_game) 
+        
         with self.cat:
-
             self.cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
             with self.cat_visuals:
                 self.Preload(f"{self.curCatSkin}/sittingb.png", 2, "idle")
@@ -467,7 +700,8 @@ class Game:
                 self.Preload(f"{self.curCatSkin}/RunCatb.png", 6, "walk")
                 self.Preload(f"{self.curCatSkin}/JumpCatb.png", 12, "jump")
                 self.Preload(f"{self.curCatSkin}/SleepCatb.png", 2, "sleep")
-            ui.joystick(color='transparent', size=80, on_move=lambda e: self.catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
+            
+            self.catjoy = ui.joystick(color='transparent', size=80, on_move=lambda e: self.catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
         
         ui.timer(0.1, lambda: self.doAnim("idle", 0.35), once=True)
         self.update_transform()
@@ -507,6 +741,18 @@ class Game:
         if self.current_room == 'food': 
             return
 
+        click_x_pct = (e.image_x / roomsize) * 100
+        click_y_pct = (e.image_y / roomsize) * 100
+
+        cat_size = 15 
+        if (self.cat_x <= click_x_pct <= self.cat_x + cat_size) and \
+           (self.cat_y <= click_y_pct <= self.cat_y + cat_size):
+            await self.start_petting_game()
+            return
+
+        if self.petting_mode:
+            return
+
         if self.move_task and not self.move_task.done():
             self.move_task.cancel()
        
@@ -514,10 +760,10 @@ class Game:
         floor_max_y = 75  
         floor_min_x = 15   
         floor_max_x = 85   
-        click_x_pct = (e.image_x / roomsize) * 100
-        click_y_pct = (e.image_y / roomsize) * 100
+        
         dest_x_pct = max(floor_min_x, min(floor_max_x, click_x_pct))
         dest_y_pct = max(floor_min_y, min(floor_max_y, click_y_pct))
+        
         cat_width_pct = 16
         cat_height_pct = 16 
 
