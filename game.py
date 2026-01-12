@@ -35,12 +35,15 @@ def spriteCycler(x, y, step, path, scale: int = 1, ystep=32):
     return img
 
 class RhythmTarget:
-    def __init__(self, key_char, prog, container):
+    def __init__(self, key_char, prog, container, x, y):
         self.el = container
         self.prog = prog
         self.key = key_char
         self.start_time = time.time()
         self.clicked = False
+        self.x = x
+        self.y = y 
+        
 
 class Game:
     def __init__(self, user: User, on_logout_callback):
@@ -477,10 +480,18 @@ class Game:
         if self.move_task and not self.move_task.done():
             self.move_task.cancel()
         
-        self.petting_overlay = ui.element('div').classes('absolute inset-0 pointer-events-none z-40')
+        self.petting_overlay = ui.element('div').classes('absolute inset-0 z-40')
+        
         with self.petting_overlay:
-            with ui.element('div').classes('absolute right-20 top-1/4 h-1/2 w-8 bg-black/30 border-2 border-white rounded'):
-                self.score_bar = ui.linear_progress(value=0.0, show_value=False, color='pink').props('vertical').classes('absolute inset-0 w-full h-full')
+            self.cat_joystick = ui.joystick(
+                color='transparent', 
+                size=150, 
+                on_move=lambda e: self.catPet(e)
+            ).classes('absolute bottom-10 right-10') \
+             .style('width: 200px; height: 200px;') 
+
+            with ui.element('div').classes('absolute right-20 bg-black/30 border-2 border-white rounded').style('width:20vh; height:3vw; top:45vh; right:10vw; transform: rotate(-90deg);'):
+                self.score_bar = ui.linear_progress(value=0.0, show_value=False, color='pink').classes('absolute inset-0 w-full h-full')
         
         cat_size = 15 
         center_x = self.cat_x + (cat_size / 2)
@@ -497,19 +508,25 @@ class Game:
         self.petting_mode = False
         if self.rhythm_task:
             self.rhythm_task.cancel()
+        
         if self.petting_overlay:
             self.petting_overlay.delete()
             self.petting_overlay = None
+            self.cat_joystick = None 
         
         for t in self.active_targets:
             try: t['el'].delete()
             except: pass
         self.active_targets = []
         
-        ui.notify(f"Game Over! Score: {int(self.petting_score * 100)}")
+        if self.room:
+            with self.room.client:
+                ui.notify(f"Game Over! Score: {int(self.petting_score * 100)}")
+        
         await self.cameraAction(0, 0, 1.0, speed=2.0)
 
     def update_petting_score(self, points):
+        print(self.petting_score, points)
         self.petting_score += (points / 100.0)
         self.petting_score = max(0.0, min(1.0, self.petting_score))
         if self.score_bar:
@@ -535,8 +552,31 @@ class Game:
         except asyncio.CancelledError:
             pass
 
-    def spawn_rhythm_target(self):
+    def show_hit_feedback(self, target, result):
+
+        config = {
+            'perfect': {'text': 'PERFECT!', 'bg': 'bg-green-500', 'score': '+4'},
+            'average': {'text': 'OKAY', 'bg': 'bg-yellow-500', 'score': '+2'},
+            'miss':    {'text': 'MISS', 'bg': 'bg-red-600', 'score': '-6'}
+        }
         
+        data = config.get(result, config['miss'])
+        
+        with self.petting_overlay:
+            with ui.element('div').classes(f"absolute w-16 h-16 rounded-full flex flex-col items-center justify-center {data['bg']} z-50 shadow-lg") \
+                .style(f'left: {target.x}%; top: {target.y}%; transform: translate(-50%, -50%); opacity: 1; transition: all 0.5s ease-out;') as feedback_el:
+                
+                ui.label(data['text']).classes('text-white font-bold text-xs drop-shadow-md')
+
+        async def animate_feedback():
+            await asyncio.sleep(0.05)
+            feedback_el.style(f'left: {target.x}%; top: {target.y - 5}%; transform: translate(-50%, -50%) scale(1.2); opacity: 0;')
+            await asyncio.sleep(0.5)
+            feedback_el.delete()
+
+        asyncio.create_task(animate_feedback())
+            
+    def spawn_rhythm_target(self):
         key_map = {
             'd': {'color': 'red-500', 'code': 'd'},
             'f': {'color': 'green-500', 'code': 'f'},
@@ -559,28 +599,20 @@ class Game:
                 
                 ui.label(data['code'].upper()).classes('absolute inset-0 flex items-center justify-center font-bold text-white text-xl drop-shadow-md').style('background-color: rgba(0, 0, 0, 0.3); border-radius: 50%; width: 100%; height: 100%;')
         
-        curtarget = RhythmTarget(key_char, prog, container)
+        curtarget = RhythmTarget(key_char, prog, container, pos_x, pos_y)
         
         container.on('click', lambda: self.handle_click_input(curtarget))
         
         self.active_targets.append(curtarget)
         asyncio.create_task(self.animate_target(curtarget))
-        # target = {
-        #     'el': container,
-        #     'prog': prog,
-        #     'key': key_char,
-        #     'start_time': time.time(),
-        #     'clicked': False
-        # }
         
-        
-        
-        # Add click handler specifically for mouse
-        container.on('click', lambda: self.handle_click_input(curtarget))
-        
-        self.active_targets.append(curtarget)
-        asyncio.create_task(self.animate_target(curtarget))
-
+    # target = {
+            #     'el': container,
+            #     'prog': prog,
+            #     'key': key_char,
+            #     'start_time': time.time(),
+            #     'clicked': False
+            # }
     async def animate_target(self, target):
         duration = 1.2
         late_duration = 0.4
@@ -608,7 +640,8 @@ class Game:
                 val = elapsed_late / late_duration
                 if val >= 1.0: 
                     self.update_petting_score(-6)
-                    target.el.style('opacity: 0; transition: opacity 0.2s;')
+                    self.show_hit_feedback(target, 'miss')
+                    target.el.style('opacity: 0;')
                     break
                 
                 target.prog.value = val
@@ -616,7 +649,8 @@ class Game:
 
         if target in self.active_targets:
             self.active_targets.remove(target)
-        await asyncio.sleep(0.2)
+        
+        await asyncio.sleep(0.1) 
         try: target.el.delete()
         except: pass
 
@@ -642,18 +676,17 @@ class Game:
         target.clicked = True
         elapsed = hit_time - target.start_time
         
-        
-        if 0.6 <= elapsed <= 0.8:
+        if 1.1 <= elapsed <= 1.3:
             self.update_petting_score(4)
-            target.el.classes('scale-125 transition-transform')
-            target.prog.props('color="white"')
-        elif (0.5 <= elapsed < 0.6) or (0.8 < elapsed <= 0.9):
+            self.show_hit_feedback(target, 'perfect')
+        elif (0.9 <= elapsed < 1.1) or (1.3 < elapsed <= 1.5):
             self.update_petting_score(2)
+            self.show_hit_feedback(target, 'average')
         else:
             self.update_petting_score(-6)
-            target.el.style('opacity: 0.5;')
+            self.show_hit_feedback(target, 'miss')
             
-        target.el.style('transition: transform 0.1s; transform: translate(-50%, -50%) scale(1.5); opacity: 0;')
+        target.el.style('opacity: 0;')
 
     async def stroke_phase(self):
         self.stroke_phase_active = True
@@ -689,8 +722,7 @@ class Game:
             self.bowlsUI()
         
         self.cat = ui.element('div').classes('absolute z-30').style(
-            f'left:{self.cat_x}%; top:{self.cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;'
-        ).on('click.stop', self.start_petting_game) 
+            f'left:{self.cat_x}%; top:{self.cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;').on('click.stop', self.start_petting_game) 
         
         with self.cat:
             self.cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
@@ -700,9 +732,7 @@ class Game:
                 self.Preload(f"{self.curCatSkin}/RunCatb.png", 6, "walk")
                 self.Preload(f"{self.curCatSkin}/JumpCatb.png", 12, "jump")
                 self.Preload(f"{self.curCatSkin}/SleepCatb.png", 2, "sleep")
-            
-            self.catjoy = ui.joystick(color='transparent', size=80, on_move=lambda e: self.catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
-        
+                    
         ui.timer(0.1, lambda: self.doAnim("idle", 0.35), once=True)
         self.update_transform()
         
