@@ -10,6 +10,7 @@ class User(models.Model):
     health = fields.IntField(default=100)
     happiness = fields.IntField(default=100)
     isLoggedIn = fields.BooleanField(default=False)
+    age = fields.DatetimeField()
 
 async def init_db():
     await Tortoise.init(db_url='sqlite://db.sqlite3', modules={'models': ['models']})

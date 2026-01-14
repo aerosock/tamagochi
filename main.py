@@ -202,8 +202,8 @@ async def route_login():
             pwd = ui.input(label='Password', password=True).classes('mb-4 w-full text-l font-bold text-black').style('font-family: runescape; color: #ffd2c2;')
 
             ui.button('Login', color='#bd9a8e').classes('w-full pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 0;').on('click', lambda: try_login(user, pwd, errortext, regbut))
-            errortext = ui.label(' ').style('font-size: 1rem; color: red; margin: 0.8rem 0;')
-            regbut = ui.button('Register', on_click=lambda: registeriface(user, pwd), color='turquoise').classes('w-full mt-2 text-sm hidden pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1rem; padding: 8px; border-radius: 0; transition: opacity 0.5s;')
+            errortext = ui.label('Don\'t have an account? Register below!').style('font-size: 1rem; color: red; margin: 0.8rem 0;')
+            regbut = ui.button('Register', on_click=lambda: registeriface(user, pwd), color='turquoise').classes('w-full mt-2 text-sm pixel-border pixel-3d inline-block').style('color: white; font-family: runescape; font-size: 1rem; padding: 8px; border-radius: 0; transition: opacity 0.5s;')
             
 
 
@@ -215,11 +215,11 @@ async def try_login(user_input, pwd_input, field, regbut):
         active_games[user.id] = Game(user, on_logout_callback=remove_active_game)
         
         ui.notify('Login successful!', color='positive')
+        game = await get_current_game()
+        game.newuser = True
         ui.navigate.to('/')
     else:
         ui.notify('Invalid username or password', color='negative')
-        field.set_text('Don\'t have an account? Register below!')
-        regbut.classes(remove='hidden', add='inline-block')
 
 async def registeriface(user, pwd):
     with ui.dialog() as dialog, ui.card().style( 'padding: 2vw; background-color: rgb(255, 210, 194); overflow:hidden;').classes('pixel-border pixel-3d'):
@@ -236,8 +236,7 @@ async def registeriface(user, pwd):
     async def trytoreg(user, pwd, dialog):
         await User.create(username=user.value, password=pwd.value)
         dialog.close()
-        ui.notify("User created! Click login now.")    
-        ui.refreshable(try_login)
+        ui.notify("User created! Click login now.")
                               
 async def get_current_game():
     ui.colors(primary='#bd9a8e')

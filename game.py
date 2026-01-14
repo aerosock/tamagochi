@@ -17,6 +17,9 @@ skinfolderarray = [
     "Tiger Cat", "Black Cat", "Halloween Cat", "Goofy White Cat"
 ]
 
+
+
+
 def clamp(v, lo=0.5, hi=2.0):
     return max(lo, min(hi, v))
 
@@ -47,11 +50,12 @@ class RhythmTarget:
 
 class Game:
     def __init__(self, user: User, on_logout_callback):
+        self.newuser = False
         self.user = user
         self.on_logout_callback = on_logout_callback
         self.curCatSkin = user.equipped_skin
-        
-        self.move_task = None
+        self.washstart = None
+        self.move_task = None   
         self.evading = None
         self.cat_layer = None
         self.canvas = None
@@ -195,6 +199,15 @@ class Game:
         if self.current_room != 'bath' and not self.petting_mode:
             self.doAnim("idle", 0.35)
 
+    def newcommer_banner(self):
+        with ui.dialog() as dialog, ui.card().style('padding: 2vw; background-color: rgb(255, 210, 194);').classes('pixel-border pixel-3d'):
+            ui.label(f'Hello {self.user.username}! Welcome to Tamagochi Cat Simulator!').classes('text-2xl font-bold text-white mb-4 text-center').style('font-family: runescape;')
+            ui.label('Here are some tips to get you started:').classes('text-lg text-white mb-2').style('font-family: runescape;')
+            ui.label('- Use the buttons on the right to navigate between rooms.').classes('text-md text-white mb-1').style('font-family: runescape;')
+            ui.label('- Take care of your cat by feeding, bathing, and playing with it!').classes('text-md text-white mb-1').style('font-family: runescape;')
+            ui.button('Close', on_click=dialog.close).style('font-family: runescape; color: white; background-color: #bd9a8e; padding: 10px;').classes('pixel-border pixel-3d mt-4 w-full')
+        ui.timer(0.8, lambda: dialog.open(), once=True)
+
     async def cameraAction(self, target_x_pct, target_y_pct, target_zoom, speed=2.0):
         dist_x = target_x_pct - self.cam_x
         dist_y = target_y_pct - self.cam_y
@@ -293,10 +306,10 @@ class Game:
                 ui.separator()
                 ui.label(self.user.username).classes('font-bold text-lg')
                 ui.label('lvl: 3')
-                ui.label('hunger: 79/100')
-                ui.label('thirst: 79/100')
-                ui.label('sleep: 100/100')
-                ui.label('age: ...')
+                ui.label(f'hunger:')
+                ui.label(f'thirst: 79/100')
+                ui.label(f'sleep: 100/100')
+                ui.label(f'age: ...')
 
     async def press(self, name: str):
             prev = self.current_room
@@ -737,6 +750,8 @@ class Game:
         self.update_transform()
         
         ui.timer(0, lambda: ui.run_javascript(f'window.startCatTracking("c{self.cat_visuals.id}")'), once=True)
+        
+
 
     def baseui(self, room_texture='Room.png', bg='bg-blue-200'):
         with ui.element('div').classes(f'fixed inset-0 {bg} overflow-hidden pixelated'):
@@ -750,6 +765,8 @@ class Game:
                 self.bottom_right_button()
             with ui.element('div').classes('absolute left-10 bottom-20 z-50'):
                 self.resetbut()
+            with ui.element('div').classes('absolute inset-0 overflow-hidden'):
+                ui.timer(0.1, lambda: self.newcommer_banner(), once=True)
             
             room_wrapper = ui.element('div').classes('absolute inset-0 flex items-center justify-center z-0 pointer-events-none')
             with room_wrapper:
@@ -884,6 +901,7 @@ class Game:
 
         if self.water == False:
             self.water = True
+            self.washstart = time.time()
             if self.evading:
                 self.evading.cancel()
             self.evading = asyncio.create_task(self.run_away_loop())
@@ -897,6 +915,8 @@ class Game:
             self.shower_task = asyncio.create_task(self.cyclingSprite(frames, 0.2))
                 
         elif( self.water == True and progress):
+            timedif = time.time() - self.washstart
+            mooddebuff = int(max(5, timedif / 2.0))
             self.water = False
 
             self.canvas.classes(remove='showerhandle1 showerhandle2 showerhandle3 showerhandle4')
@@ -912,7 +932,8 @@ class Game:
                 f.classes(remove='opacity-100', add='opacity-0')
             asyncio.create_task(self.moveCat(55, 50, speed=2, run_anim="walk", end_anim="idle", restore_tracking=True))
             with ui.dialog() as dialog, ui.card().style( 'padding: 2vw; background-color: rgb(255, 210, 194);').classes('pixel-border pixel-3d'):
-                ui.label('You have cleaned your cat!').classes('text-xl font-bold').style('font-family: runescape; color: #7c5a52;')
+                self.mood-=mooddebuff
+                ui.label(f'You have cleaned your cat!\n Time taken: {int(timedif)} seconds.\n The subsequent debuff for washing is -{mooddebuff} mood points. Cats hate water!').classes('text-xl font-bold').style('font-family: runescape; color: #7c5a52;')
                 ui.button('Go Home', on_click=dialog.close, color='rgb(255, 210, 194)').style('background-color: #7c5a52; color: white; font-family: runescape; font-size: 1.2vw; padding: 0.5vw 1vw; border-radius: none; margin-top: 1vw;').classes('pixel-border pixel-3d')
             async def dial():
                 await dialog
@@ -1130,7 +1151,7 @@ class Game:
         with self.room:
             self.skinsui()          
 
-            self.changingui = ui.element('div').classes('absolute z-20').style("left:7%; top:250%; width:70%; height:35%; ""border-radius:2%; border: 0.2vw solid grey; ""background-color: rgba(189, 154, 142, 0.7);")
+            self.changingui = ui.element('div').classes('absolute z-20').style("left:7%; top:250%; width:70%; height:35%; border-radius:2%; border: 0.2vw solid grey; background-color: rgba(189, 154, 142, 0.7);")
             
             with self.changingui:
                 self.skinnamelabel = ui.label(self.curCatSkin).style('position:absolute; top:10%; left:50%; transform: translateX(-50%) translateY(-50%); color:white; font-size:2vw; background:transparent;')
