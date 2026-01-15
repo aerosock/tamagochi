@@ -1,10 +1,12 @@
 from nicegui import ui, app, events
-from tortoise import Tortoise
+from tortoise import Tortoise, fields, models
 import pathlib
 from datetime import datetime, timezone
-
+import bcrypt
 from models import User, init_db
 from game import Game
+from pydantic import BaseModel, EmailStr, ValidationError
+
 
 
 BASE = pathlib.Path(__file__).parent
@@ -149,6 +151,12 @@ ui.add_head_html("""
 </script>
 """, shared=True)
 
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    email: EmailStr
+
 def remove_active_game(user_id):
     if user_id in active_games:
         active_games.pop(user_id, None)
@@ -210,7 +218,7 @@ async def route_login():
 
 async def try_login(user_input, pwd_input, field, regbut):
     user = await User.filter(username=user_input.value).first()
-    if user and user.password == pwd_input.value:
+    if user and bcrypt.checkpw(pwd_input.value.encode('utf-8'), user.password.encode('utf-8')):
         app.storage.user['user_id'] = user.id
         
         active_games[user.id] = Game(user, on_logout_callback=remove_active_game)
@@ -227,16 +235,37 @@ async def registeriface(user, pwd):
         ui.icon('cross').classes('absolute top-2 right-2 w-6 h-6 cursor-pointer').on('click', lambda: dialog.close())
         ui.label('Welcome! Please, enter the login details').classes('text-2xl font-bold text-white mb-4 text-center').style('font-family: runescape;')
         
-        user = ui.input(label='Username', value=user.value).classes('mb-4 w-full text-l').style('font-family: runescape; color: #ffd2c2;')
-        pwd = ui.input(label='Password', password=True, value=pwd.value).classes('mb-4 w-full text-l font-bold text-black').style('font-family: runescape; color: #ffd2c2;')
-   
-        ui.button('Register', color='#604c45').classes('w-full pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 0;').on('click', lambda: trytoreg(user, pwd, dialog))
+        reg_user = ui.input(label='Username', value=user.value).classes('mb-4 w-full text-l').style('font-family: runescape; color: #ffd2c2;')
+        reg_pwd = ui.input(label='Password', password=True, value=pwd.value).classes('mb-4 w-full text-l font-bold text-black').style('font-family: runescape; color: #ffd2c2;')
+        reg_email = ui.input(label='Email').classes('mb-4 w-full')
+        ui.button('Register', color='#604c45').classes('w-full pixel-border pixel-3d').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 0;').on('click', lambda: trytoreg(reg_user, reg_pwd, reg_email, dialog))
     dialog.open()        
             
-    async def trytoreg(user, pwd, dialog):
-        await User.create(username=user.value, password=pwd.value, age=datetime.now(timezone.utc))
-        dialog.close()
-        ui.notify("User created! Click login now.")
+    async def trytoreg(u_input, p_input, e_input, dialog):
+        try:
+            valid_data = UserCreate(
+                username=u_input.value,
+                password=p_input.value,
+                email=e_input.value
+            )
+            pwdhash = bcrypt.hashpw(valid_data.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            
+            await User.create(
+                username=valid_data.username, 
+                password=pwdhash, 
+                email=valid_data.email, 
+                age=datetime.now(timezone.utc)
+            )
+            
+            dialog.close()
+            ui.notify("User created! Click login now.", color='positive')
+
+        except ValidationError as e:
+            error_msg = e.errors()[0]['msg']
+            ui.notify(f"Registration Failed: {error_msg}", color='negative')
+        
+        except Exception as e:
+            ui.notify(f"Error: {str(e)}", color='negative')
                               
 async def get_current_game():
     ui.colors(primary='#bd9a8e')

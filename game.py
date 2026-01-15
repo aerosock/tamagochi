@@ -462,6 +462,8 @@ class Game:
                 self.toolbar_right()
             ui.label('Settings page').style('font-size: 3rem; color: #333; text-align: center; width:100vw; margin-top: 20px;')
             with ui.grid(columns=2).style('gap: 20px; width: 70vw; margin: 50px 0; ').classes('items-center'):
+                ui.label('Change Username')
+                userchfld = ui.input().style('font-size: 1.2rem; padding: 10px; width: 100%; border: 2px solid #ccc; border-radius: 5px;')
                 ui.label('Change Password')
                 pwdchfld = ui.input(password=True).style('font-size: 1.2rem; padding: 10px; width: 100%; border: 2px solid #ccc; border-radius: 5px;')
                 
@@ -473,6 +475,7 @@ class Game:
 
                 ui.label('Mouse sensitivity')
                 ui.slider(min=0.5, max=2.0, value=self.cam_zoom_sens, step=0.1).bind_value_to(self, 'cam_zoom_sens').style('color: primary;')
+            ui.button('Confirm and Save Changes', color='#7c5a52').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 5px;').classes('pixel-border pixel-3d mt-4 w-50').on('click', lambda: ui.notify('Settings saved!'))
 
 
     def button(self, name: str):
