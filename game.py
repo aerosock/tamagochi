@@ -5,6 +5,7 @@ import pathlib
 from itertools import cycle
 from PIL import Image
 from nicegui import ui, app, events
+from datetime import datetime, timezone
 
 from models import User
 SPRITE_SCALE = 4
@@ -50,6 +51,7 @@ class RhythmTarget:
 
 class Game:
     def __init__(self, user: User, on_logout_callback):
+        self.age_timer = None
         self.newuser = False
         self.user = user
         self.on_logout_callback = on_logout_callback
@@ -60,13 +62,13 @@ class Game:
         self.cat_layer = None
         self.canvas = None
         self.cat = None
-        self.cat_joystick = None 
         self.cat_visuals = None
         self.pet_timeout_task = None
         self.anim_arrays = {}           
         self.current_anim_task = None   
         self.current_visible_list = None 
-        self.petState = 0               
+        self.petState = 0    
+        self.agetip_time = None           
         self.current_room = 'home'
         self.cam_x = 0.0 
         self.cam_y = 0.0
@@ -92,9 +94,9 @@ class Game:
         self.petting_score = 0
         self.active_targets = [] 
         self.rhythm_task = None
-        self.stroke_phase_active = False
-        self.stroke_counter = 0
-        self.last_stroke_y = 0
+        # self.stroke_phase_active = False
+        # self.stroke_counter = 0
+        # self.last_stroke_y = 0
         self.score_bar = None
         self.petting_overlay = None
         
@@ -156,19 +158,19 @@ class Game:
                 await asyncio.sleep(time)
                 
     def catPet(self, coord):
-        if self.petting_mode and self.stroke_phase_active:
-            curr_y = coord.y
-            if self.last_stroke_y > 0.3 and curr_y < -0.3:
-                self.stroke_counter += 1
-                self.update_petting_score(1)
-                self.doAnim("pet", 0.1, cancel_current=True)
-            elif self.last_stroke_y < -0.3 and curr_y > 0.3:
-                self.stroke_counter += 1
-                self.update_petting_score(1)
-                self.doAnim("pet", 0.1, cancel_current=True)
+        # if self.petting_mode and self.stroke_phase_active:
+        #     curr_y = coord.y
+        #     if self.last_stroke_y > 0.3 and curr_y < -0.3:
+        #         self.stroke_counter += 1
+        #         self.update_petting_score(1)
+        #         self.doAnim("pet", 0.1, cancel_current=True)
+        #     elif self.last_stroke_y < -0.3 and curr_y > 0.3:
+        #         self.stroke_counter += 1
+        #         self.update_petting_score(1)
+        #         self.doAnim("pet", 0.1, cancel_current=True)
             
-            self.last_stroke_y = curr_y
-            return
+        #     self.last_stroke_y = curr_y
+        #     return
 
         if self.current_room == 'home' and not self.petting_mode:
             if self.petState == 0:
@@ -200,13 +202,16 @@ class Game:
             self.doAnim("idle", 0.35)
 
     def newcommer_banner(self):
-        with ui.dialog() as dialog, ui.card().style('padding: 2vw; background-color: rgb(255, 210, 194);').classes('pixel-border pixel-3d'):
-            ui.label(f'Hello {self.user.username}! Welcome to Tamagochi Cat Simulator!').classes('text-2xl font-bold text-white mb-4 text-center').style('font-family: runescape;')
-            ui.label('Here are some tips to get you started:').classes('text-lg text-white mb-2').style('font-family: runescape;')
-            ui.label('- Use the buttons on the right to navigate between rooms.').classes('text-md text-white mb-1').style('font-family: runescape;')
-            ui.label('- Take care of your cat by feeding, bathing, and playing with it!').classes('text-md text-white mb-1').style('font-family: runescape;')
-            ui.button('Close', on_click=dialog.close).style('font-family: runescape; color: white; background-color: #bd9a8e; padding: 10px;').classes('pixel-border pixel-3d mt-4 w-full')
-        ui.timer(0.8, lambda: dialog.open(), once=True)
+        if self.user.isnewuser == True:
+            with ui.dialog() as dialog, ui.card().style('padding: 2vw; background-color: rgb(255, 210, 194);').classes('pixel-border pixel-3d'):
+                ui.label(f'Hello {self.user.username}! Welcome to Tamagochi Cat Simulator!').classes('text-2xl font-bold text-black mb-4 text-center').style('font-family: runescape;')
+                ui.label('Here are some tips to get you started:').classes('text-lg text-black mb-2').style('font-family: runescape;')
+                ui.label('- Use the buttons on the right to navigate between rooms.').classes('text-md text-black mb-1').style('font-family: runescape;')
+                ui.label('- Take care of your cat by feeding, bathing, and playing with it!').classes('text-md text-black mb-1').style('font-family: runescape;')
+                ui.button('Close', on_click=dialog.close).style('font-family: runescape; color: white; background-color: #bd9a8e; padding: 10px;').classes('pixel-border pixel-3d mt-4 w-full')
+            self.user.isnewuser = False
+            asyncio.create_task(self.user.save())            
+            ui.timer(0.8, lambda: dialog.open(), once=True)
 
     async def cameraAction(self, target_x_pct, target_y_pct, target_zoom, speed=2.0):
         dist_x = target_x_pct - self.cam_x
@@ -305,11 +310,51 @@ class Game:
                 ui.label('Stats').classes("h-10 text-lg font-bold text-center")
                 ui.separator()
                 ui.label(self.user.username).classes('font-bold text-lg')
-                ui.label('lvl: 3')
-                ui.label(f'hunger:')
+                self.age_display = ui.label(f'age: {self.age_timer}').classes('font-bold text-lg')
+                with self.age_display:
+                    self.agetip = ui.tooltip(f'{self.agetip_time}').style('font-family: runescape; background-color: #f0e4d7; color: #333; padding: 0.3vw; border-radius: 5px; font-size: 0.9rem;')
+                self.hungermeter = ui.label('')
                 ui.label(f'thirst: 79/100')
                 ui.label(f'sleep: 100/100')
                 ui.label(f'age: ...')
+
+        
+    def agecheck(self, tooltip = False):
+        while True:
+            diff = datetime.now(timezone.utc) - self.user.age
+        
+            
+            years = diff.days // 365
+            remaining_days = diff.days % 365
+            
+            months = remaining_days // 30
+            days = remaining_days % 30
+            
+            hours = diff.seconds // 3600
+            remaining_seconds = diff.seconds % 3600
+            
+            minutes = remaining_seconds // 60
+            seconds = remaining_seconds % 60
+            parts = []
+            if tooltip:
+                limit = 10000000000000000000000
+            else:
+                limit = 3
+            if years > 0 : 
+                parts.append(f"{years}y")
+            if months > 0: 
+                parts.append(f"{months}m")
+            if days > 0:
+                parts.append(f"{days}d")
+            if hours > 0 and len(parts) < limit: 
+                parts.append(f"{hours}h")
+            if minutes > 0 and len(parts) < limit: 
+                parts.append(f"{minutes}min")
+            if seconds > 0 and len(parts) < limit:
+                parts.append(f"{seconds}s")
+            
+            return " ".join(parts)
+
 
     async def press(self, name: str):
             prev = self.current_room
@@ -485,7 +530,10 @@ class Game:
             await asyncio.sleep(0.2)
 
     async def start_petting_game(self):
-        if self.petting_mode: return
+        if self.current_room != 'home':
+            return
+        if self.petting_mode: 
+            return
         self.petting_mode = True
         self.petting_score = 0
         self.active_targets = []
@@ -496,12 +544,7 @@ class Game:
         self.petting_overlay = ui.element('div').classes('absolute inset-0 z-40')
         
         with self.petting_overlay:
-            self.cat_joystick = ui.joystick(
-                color='transparent', 
-                size=150, 
-                on_move=lambda e: self.catPet(e)
-            ).classes('absolute bottom-10 right-10') \
-             .style('width: 200px; height: 200px;') 
+            # self.cat_joystick = ui.joystick(color='transparent', size=150, on_move=lambda e: self.catPet(e)).classes('absolute').style('width: 200px; height: 200px; bottom:20px; left:50vw;') 
 
             with ui.element('div').classes('absolute right-20 bg-black/30 border-2 border-white rounded').style('width:20vh; height:3vw; top:45vh; right:10vw; transform: rotate(-90deg);'):
                 self.score_bar = ui.linear_progress(value=0.0, show_value=False, color='pink').classes('absolute inset-0 w-full h-full')
@@ -525,7 +568,7 @@ class Game:
         if self.petting_overlay:
             self.petting_overlay.delete()
             self.petting_overlay = None
-            self.cat_joystick = None 
+        #     self.cat_joystick = None 
         
         for t in self.active_targets:
             try: t['el'].delete()
@@ -551,14 +594,14 @@ class Game:
     async def rhythm_loop(self):
         try:
             while self.petting_mode:
-                if random.random() < 0.08:
-                    await self.stroke_phase()
-                else:
-                    num = random.randint(1, 3)
-                    for _ in range(num):
-                        if not self.petting_mode: break
-                        self.spawn_rhythm_target()
-                        await asyncio.sleep(random.uniform(0.4, 0.8))
+                # if random.random() < 0.08:
+                #     await self.stroke_phase()
+                
+                num = random.randint(1, 3)
+                for _ in range(num):
+                    if not self.petting_mode: break
+                    self.spawn_rhythm_target()
+                    await asyncio.sleep(random.uniform(0.4, 0.8))
                 
                 if not self.petting_mode: break
                 await asyncio.sleep(random.uniform(0.5, 1.5))
@@ -701,28 +744,28 @@ class Game:
             
         target.el.style('opacity: 0;')
 
-    async def stroke_phase(self):
-        self.stroke_phase_active = True
-        self.stroke_counter = 0
+    # async def stroke_phase(self):
+    #     self.stroke_phase_active = True
+    #     self.stroke_counter = 0
         
-        await asyncio.sleep(0.8)
+    #     await asyncio.sleep(0.8)
         
-        if not self.petting_mode: return
+    #     if not self.petting_mode: return
 
-        with self.petting_overlay:
-            arrow = ui.label('↕').style('font-size: 5rem; color: white; left: 50%; top: 50%; position: absolute; transform: translate(-50%, -50%); text-shadow: 2px 2px 4px #000;')
+    #     with self.petting_overlay:
+    #         arrow = ui.label('↕').style('font-size: 5rem; color: white; left: 50%; top: 50%; position: absolute; transform: translate(-50%, -50%); text-shadow: 2px 2px 4px #000;')
         
-        start_time = time.time()
-        while time.time() - start_time < 3.0:
-            if not self.petting_mode: break
-            await asyncio.sleep(0.1)
+    #     start_time = time.time()
+    #     while time.time() - start_time < 3.0:
+    #         if not self.petting_mode: break
+    #         await asyncio.sleep(0.1)
         
-        arrow.classes('glow-effect')
-        await asyncio.sleep(0.5)
-        arrow.delete()
+    #     arrow.classes('glow-effect')
+    #     await asyncio.sleep(0.5)
+    #     arrow.delete()
         
-        await asyncio.sleep(0.8)
-        self.stroke_phase_active = False
+    #     await asyncio.sleep(0.8)
+    #     self.stroke_phase_active = False
 
 
     def room_content(self):
@@ -828,6 +871,8 @@ class Game:
                 self.reseticon.classes(remove='opacity-0', add='opacity-100')
             else:
                 self.reseticon.classes(remove='opacity-100', add='opacity-0')
+            self.age_display.set_text(f"Age: {self.agecheck()}")    
+            self.agetip.set_text(f'{self.agecheck(tooltip=True)}')
             await asyncio.sleep(0.1)
 
     def logout(self):
@@ -865,7 +910,6 @@ class Game:
                     self.Preload(f"{self.curCatSkin}/SittingB.png", 2, "idle")
                     self.Preload("shower.png", 3, "shower")
                     self.Preload(f"{self.curCatSkin}/RunCatb.png", 6, "walk")
-                self.catjoy = ui.joystick(color='transparent', size=80, on_move=lambda e: self.catPet(e)).classes('bg-transparent absolute inset-0 w-full h-full custom-cursor')
             
             ui.timer(0.1, lambda: self.doAnim("idle", 0.35), once=True)
             self.update_transform()
@@ -932,7 +976,9 @@ class Game:
                 f.classes(remove='opacity-100', add='opacity-0')
             asyncio.create_task(self.moveCat(55, 50, speed=2, run_anim="walk", end_anim="idle", restore_tracking=True))
             with ui.dialog() as dialog, ui.card().style( 'padding: 2vw; background-color: rgb(255, 210, 194);').classes('pixel-border pixel-3d'):
-                self.mood-=mooddebuff
+                # self.user.mood-=mooddebuff
+                self.user.mood = 33
+                asyncio.create_task(self.user.save())
                 ui.label(f'You have cleaned your cat!\n Time taken: {int(timedif)} seconds.\n The subsequent debuff for washing is -{mooddebuff} mood points. Cats hate water!').classes('text-xl font-bold').style('font-family: runescape; color: #7c5a52;')
                 ui.button('Go Home', on_click=dialog.close, color='rgb(255, 210, 194)').style('background-color: #7c5a52; color: white; font-family: runescape; font-size: 1.2vw; padding: 0.5vw 1vw; border-radius: none; margin-top: 1vw;').classes('pixel-border pixel-3d')
             async def dial():

@@ -1,6 +1,7 @@
 from nicegui import ui, app, events
 from tortoise import Tortoise
 import pathlib
+from datetime import datetime, timezone
 
 from models import User, init_db
 from game import Game
@@ -215,8 +216,7 @@ async def try_login(user_input, pwd_input, field, regbut):
         active_games[user.id] = Game(user, on_logout_callback=remove_active_game)
         
         ui.notify('Login successful!', color='positive')
-        game = await get_current_game()
-        game.newuser = True
+
         ui.navigate.to('/')
     else:
         ui.notify('Invalid username or password', color='negative')
@@ -234,7 +234,7 @@ async def registeriface(user, pwd):
     dialog.open()        
             
     async def trytoreg(user, pwd, dialog):
-        await User.create(username=user.value, password=pwd.value)
+        await User.create(username=user.value, password=pwd.value, age=datetime.now(timezone.utc))
         dialog.close()
         ui.notify("User created! Click login now.")
                               

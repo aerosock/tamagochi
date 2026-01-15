@@ -11,6 +11,8 @@ class User(models.Model):
     happiness = fields.IntField(default=100)
     isLoggedIn = fields.BooleanField(default=False)
     age = fields.DatetimeField()
+    mood = fields.IntField(default=100)
+    isnewuser = fields.BooleanField(default=True)
 
 async def init_db():
     await Tortoise.init(db_url='sqlite://db.sqlite3', modules={'models': ['models']})
