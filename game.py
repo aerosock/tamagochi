@@ -331,31 +331,41 @@ class Game:
                 
                 with ui.element('div').classes('mt-2'):
                     ui.label('Hunger:').classes('font-bold')
-                    self.hunger_ui = self.staticons(self.user.hunger, "foodsprite.png")
+                    self.hunger_container = ui.row().classes('gap-0 inline-block')
+                    self.update_stat_icons(self.hunger_container, self.user.hunger, "foodsprite.png")
                 
                 with ui.element('div').classes('mt-2'):
                     ui.label('Thirst:').classes('font-bold')
-                    self.thirst_ui = self.staticons(self.user.thirst, "watersprite.png")
-                    
+                    self.thirst_container = ui.row().classes('gap-0 inline-block')
+                    self.update_stat_icons(self.thirst_container, self.user.thirst, "watersprite.png")
                 
                 with ui.element('div').classes('mt-2'):
                     ui.label('Sleep:').classes('font-bold')
-                    self.sleep_ui = self.staticons(self.user.sleep, "sleepsprite.png")
+                    self.sleep_container = ui.row().classes('gap-0 inline-block')
+                    self.update_stat_icons(self.sleep_container, self.user.sleep, "sleepsprite.png")
 
     
-    @ui.refreshable
-    def staticons(self, stat, spritesheet):
-        full = int(stat) // 20
-        half = 1 if int(stat) % 20 > 5 or int(stat) % 20 < 15 else 0
+    def update_stat_icons(self, container, stat, spritesheet):
+        val = int(stat)
+        full = val // 20 + (1 if val % 20 >= 15 else 0)
+        half = 1 if full < 5 and 5 <= val % 20 < 15 else 0
         empty = 5 - full - half
-        for x in range(full):
-            ui.image(spriteHandler(32, 0, 16, 16, spritesheet, scale=SPRITE_SCALE)).classes('inline-block w-6 h-6')
-        
-        if half:
-            ui.image(spriteHandler(16, 0, 16, 16, spritesheet, scale=SPRITE_SCALE)).classes('inline-block w-6 h-6')
+        current_state = (full, half)
+        if self.stat_cache.get(container.id) == current_state:
+            return
+
+        self.stat_cache[container.id] = current_state
+
+        container.clear()
+        with container:
+            for x in range(full):
+                ui.image(spriteHandler(32, 0, 16, 16, spritesheet, scale=SPRITE_SCALE)).classes('inline-block w-6 h-6')
             
-        for x in range(empty):
-            ui.image(spriteHandler(0, 0, 16, 16, spritesheet, scale=SPRITE_SCALE)).classes('inline-block w-6 h-6')
+            if half:
+                ui.image(spriteHandler(16, 0, 16, 16, spritesheet, scale=SPRITE_SCALE)).classes('inline-block w-6 h-6')
+                
+            for x in range(empty):
+                ui.image(spriteHandler(0, 0, 16, 16, spritesheet, scale=SPRITE_SCALE)).classes('inline-block w-6 h-6')
             
         
     def agecheck(self, tooltip = False):
@@ -971,9 +981,9 @@ class Game:
         
         await self.user.save()
         
-        self.check_and_refresh(self.hunger_ui, "hunger", self.user.hunger, "foodsprite.png")
-        self.check_and_refresh(self.thirst_ui, "thirst", self.user.thirst, "watersprite.png")
-        self.check_and_refresh(self.sleep_ui,  "sleep",  self.user.sleep,  "sleepsprite.png")
+        self.update_stat_icons(self.hunger_container, self.user.hunger, "foodsprite.png")
+        self.update_stat_icons(self.thirst_container, self.user.thirst, "watersprite.png")
+        self.update_stat_icons(self.sleep_container,  self.user.sleep,  "sleepsprite.png")
 
     def logout(self):
         self.isloggedin = False
