@@ -6,6 +6,8 @@ from itertools import cycle
 from PIL import Image
 from nicegui import ui, app, events
 from datetime import datetime, timezone
+from pydantic import BaseModel, EmailStr, ValidationError
+import bcrypt
 
 from models import User
 SPRITE_SCALE = 4
@@ -50,12 +52,20 @@ class RhythmTarget:
         
 
 class Game:
+    class UserCreate(BaseModel):
+        username: str
+        password: str
+        email: EmailStr
+    
     def __init__(self, user: User, on_logout_callback):
         self.age_timer = None
         self.newuser = False
+        self.stat_cache = {}
+        self.hunger_ui = None
+        self.thirst_ui = None
+        self.sleep_ui = None
         self.user = user
         self.on_logout_callback = on_logout_callback
-        self.curCatSkin = user.equipped_skin
         self.washstart = None
         self.move_task = None   
         self.evading = None
@@ -86,7 +96,7 @@ class Game:
         self.reseticon = None
         self.changingui = None
         self.skinnamelabel = None
-        self.skinnum = skinfolderarray.index(self.curCatSkin)
+        self.skinnum = skinfolderarray.index(self.user.equipped_skin)
         self.isloggedin = True
         self.oscillate_task = None
 
@@ -279,9 +289,11 @@ class Game:
         if restore_tracking and self.cat:
             self.cat.client.run_javascript('window.setTracking(true)')
 
-    def changePfp(self, skin):
-        endskin = f"{skin}/SittingB.png"
-        ui.image(spriteCycler(0, 0, 32, endskin, scale=SPRITE_SCALE)).classes('w-25 h-25')
+    @ui.refreshable
+    def changePfp(self):
+        
+        ui.image(spriteCycler(0, 0, 32, f"{self.user.equipped_skin}/SittingB.png", scale=SPRITE_SCALE)).classes('w-25 h-25')
+            
 
     def hud_top_left(self):
         with ui.element('div').classes('relative pixelated'):
@@ -300,8 +312,11 @@ class Game:
                     'transform: translateY(7px); color: #f0e68c; text-shadow: 2px 2px 3px #000;')
                 ui.circular_progress(value =0.5, show_value=False).props('instant-feedback').classes('inline-block ml-2')
                 ui.label('50%').classes('inline-block ml-2 text-lg font-bold').style('transform: translate(-45.5px, 4px); color: #82C8E5;')
-            with ui.element('div').classes('absolute left-4 top-8'):
-                self.changePfp(self.curCatSkin) 
+            self.pfpplace = ui.element('div').classes('absolute left-4 top-8')
+            with self.pfpplace:
+                self.changePfp()
+                
+                
 
     def stats_left(self):
         with ui.element('div').classes('relative top-30'):
@@ -313,11 +328,35 @@ class Game:
                 self.age_display = ui.label(f'age: {self.age_timer}').classes('font-bold text-lg')
                 with self.age_display:
                     self.agetip = ui.tooltip(f'{self.agetip_time}').style('font-family: runescape; background-color: #f0e4d7; color: #333; padding: 0.3vw; border-radius: 5px; font-size: 0.9rem;')
-                self.hungermeter = ui.label('')
-                ui.label(f'thirst: 79/100')
-                ui.label(f'sleep: 100/100')
-                ui.label(f'age: ...')
+                
+                with ui.element('div').classes('mt-2'):
+                    ui.label('Hunger:').classes('font-bold')
+                    self.hunger_ui = self.staticons(self.user.hunger, "foodsprite.png")
+                
+                with ui.element('div').classes('mt-2'):
+                    ui.label('Thirst:').classes('font-bold')
+                    self.thirst_ui = self.staticons(self.user.thirst, "watersprite.png")
+                    
+                
+                with ui.element('div').classes('mt-2'):
+                    ui.label('Sleep:').classes('font-bold')
+                    self.sleep_ui = self.staticons(self.user.sleep, "sleepsprite.png")
 
+    
+    @ui.refreshable
+    def staticons(self, stat, spritesheet):
+        full = int(stat) // 20
+        half = 1 if int(stat) % 20 > 5 or int(stat) % 20 < 15 else 0
+        empty = 5 - full - half
+        for x in range(full):
+            ui.image(spriteHandler(32, 0, 16, 16, spritesheet, scale=SPRITE_SCALE)).classes('inline-block w-6 h-6')
+        
+        if half:
+            ui.image(spriteHandler(16, 0, 16, 16, spritesheet, scale=SPRITE_SCALE)).classes('inline-block w-6 h-6')
+            
+        for x in range(empty):
+            ui.image(spriteHandler(0, 0, 16, 16, spritesheet, scale=SPRITE_SCALE)).classes('inline-block w-6 h-6')
+            
         
     def agecheck(self, tooltip = False):
         while True:
@@ -453,7 +492,6 @@ class Game:
     async def wardrobe(self): 
         ui.navigate.to('/wardrobe')
 
-
     def settings_page(self):
         self.current_room = 'settings'      
         self.anim_arrays = {}
@@ -463,20 +501,51 @@ class Game:
             ui.label('Settings page').style('font-size: 3rem; color: #333; text-align: center; width:100vw; margin-top: 20px;')
             with ui.grid(columns=2).style('gap: 20px; width: 70vw; margin: 50px 0; ').classes('items-center'):
                 ui.label('Change Username')
-                userchfld = ui.input().style('font-size: 1.2rem; padding: 10px; width: 100%; border: 2px solid #ccc; border-radius: 5px;')
-                ui.label('Change Password')
+                userchfld = ui.input(value=self.user.username).style('font-size: 1.2rem; padding: 10px; width: 100%; border: 2px solid #ccc; border-radius: 5px;')#.bind_value_from(self.user, 'username')
+                
+                ui.label('Current Password')
+                oldpwdfld = ui.input(password=True).style('font-size: 1.2rem; padding: 10px; width: 100%; border: 2px solid #ccc; border-radius: 5px;')
+                
+                ui.label('New Password')
                 pwdchfld = ui.input(password=True).style('font-size: 1.2rem; padding: 10px; width: 100%; border: 2px solid #ccc; border-radius: 5px;')
                 
                 ui.label('Change Email')
-                mailchfld = ui.input().style('font-size: 1.2rem; padding: 10px; width: 100%; border: 2px solid #ccc; border-radius: 5px;')
+                mailchfld = ui.input(value=self.user.email).style('font-size: 1.2rem; padding: 10px; width: 100%; border: 2px solid #ccc; border-radius: 5px;')#.bind_value_from(self.user, 'email')
 
                 ui.label ('Log Out of your account')
                 ui.button('Log Out', color='#bd9a8e').on('click', lambda: self.logout())
 
                 ui.label('Mouse sensitivity')
                 ui.slider(min=0.5, max=2.0, value=self.cam_zoom_sens, step=0.1).bind_value_to(self, 'cam_zoom_sens').style('color: primary;')
-            ui.button('Confirm and Save Changes', color='#7c5a52').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 5px;').classes('pixel-border pixel-3d mt-4 w-50').on('click', lambda: ui.notify('Settings saved!'))
-
+            
+            ui.button('Confirm and Save Changes', color='#7c5a52').style('color: white; font-family: runescape; font-size: 1.2rem; padding: 10px; border-radius: 5px;').classes('pixel-border pixel-3d mt-4 w-50').on('click', lambda: self.settingsconfirmed(oldpwdfld.value, userchfld.value, pwdchfld.value, mailchfld.value))
+   
+    async def settingsconfirmed(self, oldpassword, username, password, email):
+        
+        cryptold = bcrypt.hashpw(oldpassword.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        cryptnew = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        valid_data = self.UserCreate(
+                username=username,
+                password=password,
+                email=email
+            )
+        try:
+            bcrypt.checkpw(cryptold.encode('utf-8'), self.user.password.encode('utf-8'))
+            self.user.password = cryptnew
+        
+        except ValidationError as e:
+            error_msg = e.errors()[0]['msg']
+            ui.notify(f"Registration Failed: {error_msg}", color='negative')
+        
+        except Exception as e:
+            ui.notify(f"Error: {str(e)}", color='negative')
+        
+        self.user.username = valid_data.username
+        
+        self.user.email = valid_data.email
+        asyncio.create_task(self.user.save())
+        ui.notify('Settings have been saved!', color='green')
 
     def button(self, name: str):
         with ui.element('div').classes('inline-block'):
@@ -518,7 +587,7 @@ class Game:
         with ui.image(spriteHandler(390, 332, 53, 44, "Furnitures.png", scale=SPRITE_SCALE)).classes('object-contain absolute').style('left:40%; top:35%; width:5vw;'):
             ui.element('div').classes('absolute cursor-pointer w-full h-full bg-transparent').on('click', self.waterbowl)
 
-    def bedUI(self):
+    def     bedUI(self):
         ui.image(spriteHandler(201, 137, 112, 83, "Furnitures.png", scale=SPRITE_SCALE)).classes('w-[10vw] object-contain')
 
     async def cycleclasses(self):
@@ -786,11 +855,11 @@ class Game:
         with self.cat:
             self.cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
             with self.cat_visuals:
-                self.Preload(f"{self.curCatSkin}/sittingb.png", 2, "idle")
-                self.Preload(f"{self.curCatSkin}/Idle2Catb.png", 13, "pet")
-                self.Preload(f"{self.curCatSkin}/RunCatb.png", 6, "walk")
-                self.Preload(f"{self.curCatSkin}/JumpCatb.png", 12, "jump")
-                self.Preload(f"{self.curCatSkin}/SleepCatb.png", 2, "sleep")
+                self.Preload(f"{self.user.equipped_skin}/sittingb.png", 2, "idle")
+                self.Preload(f"{self.user.equipped_skin}/Idle2Catb.png", 13, "pet")
+                self.Preload(f"{self.user.equipped_skin}/RunCatb.png", 6, "walk")
+                self.Preload(f"{self.user.equipped_skin}/JumpCatb.png", 12, "jump")
+                self.Preload(f"{self.user.equipped_skin}/SleepCatb.png", 2, "sleep")
                     
         ui.timer(0.1, lambda: self.doAnim("idle", 0.35), once=True)
         self.update_transform()
@@ -800,6 +869,9 @@ class Game:
 
 
     def baseui(self, room_texture='Room.png', bg='bg-blue-200'):
+        if hasattr(self, '_stat_timer') and self._stat_timer:
+            self._stat_timer.cancel()
+            self._stat_timer = None
         with ui.element('div').classes(f'fixed inset-0 {bg} overflow-hidden pixelated'):
             with ui.element('div').classes('absolute left-6 top-6 z-50'):
                 self.hud_top_left()
@@ -827,7 +899,7 @@ class Game:
                     
                     self.room = ui.element('div').classes('absolute inset-0 pointer-events-none')
         
-        asyncio.create_task(self.statuscheck())
+        self._stat_timer = ui.timer(0.5, self.statuscheck)
         self.loading_overlay()
 
     async def mouse_handler(self, e: events.MouseEventArguments):
@@ -868,15 +940,40 @@ class Game:
         
         self.move_task = asyncio.create_task(self.moveCat(target_x, target_y, speed=1.3, run_anim="walk", end_anim="idle"))
 
+    def check_and_refresh(self, ui_element, stat_name, current_val, sprite_name):
+        if ui_element is None:
+            return
+
+        full = int(current_val) // 20
+        half = 1 if int(current_val) % 20 >= 10 else 0
+        visual_state = (full, half)
+
+        if self.stat_cache.get(stat_name) != visual_state:
+            self.stat_cache[stat_name] = visual_state
+            ui_element.refresh(current_val, sprite_name)
+
     async def statuscheck(self):
-        while self.isloggedin:
-            if self.cam_x != 0.0 or self.cam_y != 0.0 or self.cam_zoom != 1.0:
-                self.reseticon.classes(remove='opacity-0', add='opacity-100')
-            else:
-                self.reseticon.classes(remove='opacity-100', add='opacity-0')
-            self.age_display.set_text(f"Age: {self.agecheck()}")    
-            self.agetip.set_text(f'{self.agecheck(tooltip=True)}')
-            await asyncio.sleep(0.1)
+        if not self.isloggedin:
+            return
+        
+        print(self.user.hunger, self.user.thirst, self.user.sleep)
+        if self.cam_x != 0.0 or self.cam_y != 0.0 or self.cam_zoom != 1.0:
+            self.reseticon.classes(remove='opacity-0', add='opacity-100')
+        else:
+            self.reseticon.classes(remove='opacity-100', add='opacity-0')
+        
+        self.age_display.set_text(f"Age: {self.agecheck()}")    
+        self.agetip.set_text(f'{self.agecheck(tooltip=True)}')
+        
+        self.user.hunger = max(0, self.user.hunger - 0.4)
+        self.user.thirst = max(0, self.user.thirst - 0.03)
+        self.user.sleep = max(0, self.user.sleep - 0.01)
+        
+        await self.user.save()
+        
+        self.check_and_refresh(self.hunger_ui, "hunger", self.user.hunger, "foodsprite.png")
+        self.check_and_refresh(self.thirst_ui, "thirst", self.user.thirst, "watersprite.png")
+        self.check_and_refresh(self.sleep_ui,  "sleep",  self.user.sleep,  "sleepsprite.png")
 
     def logout(self):
         self.isloggedin = False
@@ -910,9 +1007,9 @@ class Game:
             with self.cat:
                 self.cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
                 with self.cat_visuals:
-                    self.Preload(f"{self.curCatSkin}/SittingB.png", 2, "idle")
+                    self.Preload(f"{self.user.equipped_skin}/SittingB.png", 2, "idle")
                     self.Preload("shower.png", 3, "shower")
-                    self.Preload(f"{self.curCatSkin}/RunCatb.png", 6, "walk")
+                    self.Preload(f"{self.user.equipped_skin}/RunCatb.png", 6, "walk")
             
             ui.timer(0.1, lambda: self.doAnim("idle", 0.35), once=True)
             self.update_transform()
@@ -1114,12 +1211,15 @@ class Game:
                 ui.label("You gave your cat water!\nThirst restored.").classes('text-xl font-bold ').style('font-family: runescape; color: #7c5a52; white-space: pre-wrap;')
                 ui.button('Close', on_click=dialog.close, color='rgb(255, 210, 194)').style('background-color: #7c5a52; color: white; font-family: runescape; font-size: 1.2vw; padding: 0.5vw 1vw; border-radius: none; margin-top: 1vw;').classes('pixel-border pixel-3d')
         await dialog
-
+        self.user.thirst = 100
+        await self.user.save()
+        self.staticons.refresh()
+        print(self.user.thirst)
         self.switch_food_mode('eat')
 
     async def scaleclickhandle(self):
         self.pressed = True
-        feedquality = ["too little food.\nHunger set to 20, Health decreased by 10 points.", "almost the perfect amount of food.\nHunger set to 0.", "the perfect amount of food.\nHunger set to 0, added 20 Energy, added 10 Health points.", "too much food.\n Hunger set to 0, decreased Health by 10 points."]
+        feedquality = ["too little food.\nHunger set to 80, Health decreased by 10 points.", "almost the perfect amount of food.\nHunger set to 100.", "the perfect amount of food.\nHunger set to 100, added 20 Energy, added 10 Health points.", "too much food.\n Hunger set to 100, decreased Health by 10 points."]
         
         with self.room:
             if self.pos<=36 and self.pos>=32 or self.pos<27 and self.pos>=23:
@@ -1155,6 +1255,20 @@ class Game:
                 ui.label(f"You gave your cat {feedquality[feed]}").classes('text-xl font-bold ').style('font-family: runescape; color: #7c5a52; white-space: pre-wrap;')
                 ui.button('Go Home', on_click=dialog.close, color='rgb(255, 210, 194)').style('background-color: #7c5a52; color: white; font-family: runescape; font-size: 1.2vw; padding: 0.5vw 1vw; border-radius: none; margin-top: 1vw;').classes('pixel-border pixel-3d')
             async def dial():
+                if feed == 0:
+                    self.user.hunger = 80
+                    self.user.health -=10
+                elif feed == 1:
+                    self.user.hunger = 100
+                elif feed == 2:
+                    self.user.hunger = 100
+                    self.user.energy +=20
+                    self.user.health +=10
+                elif feed == 3:
+                    self.user.hunger = 100
+                    self.user.health -=10
+                await self.user.save()
+                print(self.user.hunger)
                 await dialog
                 with dialog.client:
                     await self.home()
@@ -1200,21 +1314,22 @@ class Game:
         with self.room:
             self.skinsui()          
 
-            self.changingui = ui.element('div').classes('absolute z-20').style("left:7%; top:250%; width:70%; height:35%; border-radius:2%; border: 0.2vw solid grey; background-color: rgba(189, 154, 142, 0.7);")
+            self.changingui = ui.element('div').classes('absolute z-20 pointer-events-auto').style("left:7%; top:250%; width:70%; height:35%; border-radius:2%; border: 0.2vw solid grey; background-color: rgba(189, 154, 142, 0.7);")
             
             with self.changingui:
-                self.skinnamelabel = ui.label(self.curCatSkin).style('position:absolute; top:10%; left:50%; transform: translateX(-50%) translateY(-50%); color:white; font-size:2vw; background:transparent;')
+                self.skinnamelabel = ui.label(self.user.equipped_skin).style('position:absolute; top:10%; left:50%; transform: translateX(-50%) translateY(-50%); color:white; font-size:2vw; background:transparent;')
                 with ui.element('div').classes('absolute').style('height:15%; top:70%; left:15%; display:flex; flex-direction:row; align-items:center; justify-content:center; gap:1vw; padding:2vw; background-color: rgba(0, 0, 0, 0.3); border-radius:1%; width:70%;'):
-                    ui.image(spriteHandler(392, 767, 64 , 37, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:7vw; display: inline-block;').on('click', lambda: self.skinarrows('left'))
+                    ui.image(spriteHandler(392, 767, 64 , 37, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:7vw; display: inline-block;').on('click.stop', lambda: self.skinarrows('left'))
                     # ui.element('div').classes('absolute').style('left:17.1vw; height:2vw; width:6vw; top:3.8vw; box-shadow: 0 0 40px 10px #000;')
                     with ui.image(spriteHandler(180, 797, 41 , 21, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:7vw; bottom:32%; left:2%; display: inline-block;').on('click', self.skinconfirm):
                         ui.label('Confirm').style('position:absolute; top:45%; left:52%; transform: translateX(-50%) translateY(-50%); color:white; font-size:1.2vw; background:transparent;')
-                    ui.image(spriteHandler(448, 767, 64 , 37, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:7vw; display: inline-block;').on('click', lambda: self.skinarrows('right'))
+                    ui.image(spriteHandler(448, 767, 64 , 37, "catUI.png", scale=SPRITE_SCALE)).classes('object-contain').style('width:7vw; display: inline-block;').on('click.stop', lambda: self.skinarrows('right'))
         
     def skinsui(self):
         self.cat_x = 40
         with self.room:
-            ui.element('div').classes('absolute object-contain').style('width: 20vw; height: 25vh; right:38%; top:25%; transform: rotate(-15deg);').on('click', self.wardrobechanging)
+            ui.element('div').classes('absolute object-contain pointer-events-auto cursor-pointer z-20').style('width: 20vw; height: 25vh; right:38%; top:25%; transform: rotate(-15deg);').on('click', self.wardrobechanging)
+
             self.cat = ui.element('div').classes('absolute z-10').style(f'left:{self.cat_x}%; top:{self.cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;')
             with self.cat:
                 self.cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
@@ -1225,9 +1340,9 @@ class Game:
     def wardrobecallableprelod(self):
         self.cat_visuals.clear()
         with self.cat_visuals:
-            self.Preload(f"{self.curCatSkin}/SittingB.png", 2, "idle")
-            self.Preload(f"{self.curCatSkin}/RunCatb.png", 6, "walk")
-            self.Preload(f"{self.curCatSkin}/JumpCatb.png", 12, "jump")
+            self.Preload(f"{self.user.equipped_skin}/SittingB.png", 2, "idle")
+            self.Preload(f"{self.user.equipped_skin}/RunCatb.png", 6, "walk")
+            self.Preload(f"{self.user.equipped_skin}/JumpCatb.png", 12, "jump")
         self.doAnim("idle", 0.35)
 
 
@@ -1261,11 +1376,13 @@ class Game:
             self.skinnum += 1
             if self.skinnum > len(skinfolderarray):
                 self.skinnum = 1
-        self.curCatSkin = skinfolderarray[self.skinnum -1]
-        self.skinnamelabel.set_text(self.curCatSkin)
+        self.user.equipped_skin = skinfolderarray[self.skinnum -1]
+        self.skinnamelabel.set_text(self.user.equipped_skin)
+        asyncio.create_task(self.user.save())
         self.wardrobecallableprelod()
     
     async def skinconfirm(self):
+        self.changePfp.refresh()
         asyncio.create_task(self.moveCat(41, 43, speed=1.5, run_anim="jump", end_anim="idle", restore_tracking=False, animtime1=0.3, animtime2=0.35, delay=0.7))
         await asyncio.sleep(0.7)
         asyncio.create_task(self.cameraAction(0, 0, 1.0, speed=2.0))

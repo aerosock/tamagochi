@@ -17,6 +17,7 @@ class User(models.Model):
     age = fields.DatetimeField()
     mood = fields.IntField(default=100)
     isnewuser = fields.BooleanField(default=True)
+    energy = fields.IntField(default=100)
 
 
 async def init_db():
