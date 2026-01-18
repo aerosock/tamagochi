@@ -398,7 +398,7 @@ class Game:
     @ui.refreshable
     def changePfp(self):
         
-        ui.image(spriteCycler(0, 0, 32, f"{self.user.equipped_skin}/SittingB.png", scale=SPRITE_SCALE)).classes('w-25 h-25')
+        ui.image(spriteCycler(0, 0, 32, f"{self.user.equipped_skin}/Sittingb.png", scale=SPRITE_SCALE)).classes('w-25 h-25')
             
 
     def hud_top_left(self):
@@ -1487,7 +1487,7 @@ class Game:
         with self.cat:
             self.cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
             with self.cat_visuals:
-                self.Preload(f"{self.user.equipped_skin}/sittingb.png", 2, "idle")
+                self.Preload(f"{self.user.equipped_skin}/Sittingb.png", 2, "idle")
                 self.Preload(f"{self.user.equipped_skin}/Idle2Catb.png", 13, "pet")
                 self.Preload(f"{self.user.equipped_skin}/RunCatb.png", 6, "walk")
                 self.Preload(f"{self.user.equipped_skin}/JumpCatb.png", 12, "jump")
@@ -1712,7 +1712,7 @@ class Game:
             with self.cat:
                 self.cat_visuals = ui.element('div').classes('absolute inset-0 w-full h-full pointer-events-none')
                 with self.cat_visuals:
-                    self.Preload(f"{self.user.equipped_skin}/SittingB.png", 2, "idle")
+                    self.Preload(f"{self.user.equipped_skin}/Sittingb.png", 2, "idle")
                     self.Preload("shower.png", 3, "shower")
                     self.Preload(f"{self.user.equipped_skin}/RunCatb.png", 6, "walk")
             
@@ -2046,7 +2046,7 @@ class Game:
     def wardrobecallableprelod(self):
         self.cat_visuals.clear()
         with self.cat_visuals:
-            self.Preload(f"{self.user.equipped_skin}/SittingB.png", 2, "idle")
+            self.Preload(f"{self.user.equipped_skin}/Sittingb.png", 2, "idle")
             self.Preload(f"{self.user.equipped_skin}/RunCatb.png", 6, "walk")
             self.Preload(f"{self.user.equipped_skin}/JumpCatb.png", 12, "jump")
         self.doAnim("idle", 0.35)

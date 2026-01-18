@@ -350,4 +350,4 @@ def handle_key(e: events.KeyEventArguments):
 if __name__ in {"__main__", "__mp_main__"}:
     app.on_startup(init_db)
     app.on_shutdown(Tortoise.close_connections)
-    ui.run(native=False, storage_secret='abcd', on_air='ifucQoW7nDIIj7iI')
+    ui.run(native=False, storage_secret='abcd', title='THE cat game', favicon='🐈')
