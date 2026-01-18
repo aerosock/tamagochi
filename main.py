@@ -10,7 +10,7 @@ from pydantic import BaseModel, EmailStr, ValidationError
 from models import User
 from tortoise.functions import Count, Sum, Avg
 from tortoise import Tortoise
-
+from datetime import timedelta
 
 BASE = pathlib.Path(__file__).parent
 app.add_static_files('/static', str(BASE / 'static'))      
@@ -45,6 +45,7 @@ ui.add_head_html("""
         0px calc(100% - 4px)
     );
 }
+
   .q-img__loading {
     display: none !important;
   }
@@ -120,13 +121,10 @@ font-family: 'runescape';
 font-size: 1.1em;
 }
 .ag-header-cell-label {
-    color: #3e2b26;
+    color: #f0e4d7;
     font-weight: bold;
 }
-/* Custom scrollbar for the dashboard */
-::-webkit-scrollbar { width: 10px; }
-::-webkit-scrollbar-track { background: #bd9a8e; }
-::-webkit-scrollbar-thumb { background: #7c5a52; border: 1px solid #3e2b26; }
+
 </style>
 
 <script>
@@ -196,6 +194,8 @@ class UserCreate(BaseModel):
 def remove_active_game(user_id):
     if user_id in active_games:
         active_games.pop(user_id, None)
+
+
 
 @ui.page('/')
 async def route_home():
@@ -350,4 +350,4 @@ def handle_key(e: events.KeyEventArguments):
 if __name__ in {"__main__", "__mp_main__"}:
     app.on_startup(init_db)
     app.on_shutdown(Tortoise.close_connections)
-    ui.run(native=False, storage_secret='abcd')
+    ui.run(native=False, storage_secret='abcd', on_air='ifucQoW7nDIIj7iI')

@@ -13,9 +13,12 @@ from models import User
 from tortoise.functions import Count, Sum, Avg
 from tortoise import Tortoise
 
+HEALTH_DECAY_PER_TICK = 0.005
+HEALTH_REGEN_PER_TICK = 0.01
 hungerdecrement = 0.0027
 thirstdecrement = 0.0027
 sleepdecrement = 0.001
+SLEEP_DURATION_HOURS = 4
 cleanchance = 864000
 
 from models import User
@@ -29,7 +32,30 @@ skinfolderarray = [
     "Tiger Cat", "Black Cat", "Halloween Cat", "Goofy White Cat"
 ]
 
+HUNGER_HOURS = 10
+THIRST_HOURS = 10
+SLEEP_DECAY_HOURS = 24 
+CLEAN_HOURS = 24      
 
+def update_hunger_settings(e):
+    global hungerdecrement, HUNGER_HOURS
+    HUNGER_HOURS = e.value
+    hungerdecrement = 100 / (HUNGER_HOURS * 3600 * 10)
+
+def update_thirst_settings(e):
+    global thirstdecrement, THIRST_HOURS
+    THIRST_HOURS = e.value
+    thirstdecrement = 100 / (THIRST_HOURS * 3600 * 10)
+
+def update_sleep_decay_settings(e):
+    global sleepdecrement, SLEEP_DECAY_HOURS
+    SLEEP_DECAY_HOURS = e.value
+    sleepdecrement = 100 / (SLEEP_DECAY_HOURS * 3600 * 10)
+
+def update_clean_settings(e):
+    global cleanchance, CLEAN_HOURS
+    CLEAN_HOURS = e.value
+    cleanchance = int(CLEAN_HOURS * 3600 * 10)
 
 async def getdb_stats():
     total_users = await User.all().count()
@@ -68,7 +94,20 @@ async def get_top_players(limit=10):
     return await User.all().order_by("-money").limit(limit).values("id", "username", "money", "title")
 
 
-
+def get_remaining_time_str(current_val, total_hours_setting, is_filling=False):
+    if is_filling:
+        percent_remaining = (100 - current_val) / 100.0
+    else:
+        percent_remaining = current_val / 100.0
+        
+    total_minutes = int(percent_remaining * total_hours_setting * 60)
+    
+    hours = total_minutes // 60
+    mins = total_minutes % 60
+    
+    if hours > 0:
+        return f"{hours}h {mins}m"
+    return f"{mins}m"
 
 
 
@@ -193,15 +232,17 @@ class Game:
         self.anim_arrays[anim_name] = local_frames
 
     def decrementcalc(self, input, name):
-        global hungerdecrement, thirstdecrement, sleepdecrement, cleanchance
+        global hungerdecrement, thirstdecrement, sleepdecrement, cleanchance, sleepincrement
         if name == 'hunger':
             hungerdecrement = 100 / (input * 3600 * 10)
         elif name == 'thirst':
             thirstdecrement = 100 / (input * 3600 * 10)
-        elif name == 'sleep':   
+        elif name == 'sleep-':   
             sleepdecrement = 100 / (input * 3600 * 10)
         elif name == 'cleanliness':     # 1 in 36000 once in 1h at one attempt each 0.1s
             cleanchance = input * 36000 
+        elif name == 'sleep+':
+            sleepincrement 
         
          
     
@@ -364,19 +405,17 @@ class Game:
         with ui.element('div').classes('relative pixelated'):
             ui.image("/textures/statusbar.png").classes('w-100 mb-2')
             with ui.element('div').classes('absolute left-33 top-9 w-63'):
-                ui.linear_progress(value=0.7, color='red', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
-                ui.badge('50').classes('absolute-full flex flex-center text-black bg-transparent text-xl content-center h-5')
+                self.hud_health_bar = ui.linear_progress(value=1.0, color='red', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
+                self.hud_health_text = ui.badge('100').classes('absolute-full flex flex-center text-black bg-transparent text-xl content-center h-5')
                 ui.image("/textures/heart.png").classes('absolute w-10 h-10 -left-5 -top-5')
             with ui.element('div').classes('absolute left-33 top-17 w-63'):
-                ui.linear_progress(value=0.7, color='yellow', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
-                ui.badge('50').classes('absolute-full flex flex-center text-pink bg-transparent text-xl h-5')
-                ui.image("/textures/bolt.png").classes('absolute w-10 h-10 z-100 -left-5 -top-3')
+                self.hud_energy_bar = ui.linear_progress(value=1.0, color='yellow', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
+                self.hud_energy_text = ui.badge('100').classes('absolute-full flex flex-center text-pink bg-transparent text-xl h-5')
             with ui.element('div').classes('absolute left-30 top-24'):
                 ui.image("/textures/coin.png").classes('w-12 h-12 inline-block ml-2')
-                self.moneylabel = ui.label('0').classes('inline-block ml-2 text-2xl font-bold').style(
+                self.moneylabel = ui.label(str(self.user.money)).classes('inline-block ml-2 text-2xl font-bold').style(
                     'transform: translateY(7px); color: #f0e68c; text-shadow: 2px 2px 3px #000;')
-                ui.circular_progress(value =0.5, show_value=False).props('instant-feedback').classes('inline-block ml-2')
-                ui.label('50%').classes('inline-block ml-2 text-lg font-bold').style('transform: translate(-45.5px, 4px); color: #82C8E5;')
+               
             self.pfpplace = ui.element('div').classes('absolute left-4 top-8')
             with self.pfpplace:
                 self.changePfp()
@@ -445,6 +484,10 @@ class Game:
 
         with ui.element('div').classes('relative top-30'):
             ui.image("/textures/stats.png").classes('absolute w-70 mb-2')
+            
+            with ui.element('div').classes('absolute -right-5 -top-5 z-50 hidden') as self.dirty_indicator:
+                ui.label('NEEDS BATH!').classes('text-red-600 font-bold bg-white px-1 rounded pixel-border').style('font-family: runescape; font-size: 0.8rem; position: relative; top: -10px;')
+
             with ui.element('div').classes('absolute top-20 left-10 w-50 text-xl'):
                 ui.label('Stats').classes("h-10 text-lg font-bold text-center")
                 ui.separator()
@@ -452,21 +495,27 @@ class Game:
                 self.age_display = ui.label(f'age: {self.age_timer}').classes('font-bold text-lg')
                 with self.age_display:
                     self.agetip = ui.tooltip(f'{self.agetip_time}').style('font-family: runescape; background-color: #f0e4d7; color: #333; padding: 0.3vw; border-radius: 5px; font-size: 0.9rem;')
-                
-                with ui.element('div').classes('mt-2'):
+
+
+                with ui.element('div').classes('mt-1'):
                     ui.label('Hunger:').classes('font-bold')
                     self.hunger_container = ui.row().classes('gap-0 inline-block')
                     self.update_stat_icons(self.hunger_container, self.user.hunger, "foodsprite.png")
+                    with self.hunger_container:
+                        self.hunger_tooltip = ui.tooltip('...').style('font-family: runescape; font-size: 0.9rem;')
                 
-                with ui.element('div').classes('mt-2'):
+                with ui.element('div').classes('mt-1'):
                     ui.label('Thirst:').classes('font-bold')
                     self.thirst_container = ui.row().classes('gap-0 inline-block')
                     self.update_stat_icons(self.thirst_container, self.user.thirst, "watersprite.png")
+                    with self.thirst_container:
+                        self.thirst_tooltip = ui.tooltip('...').style('font-family: runescape; font-size: 0.9rem;')
                 
-                with ui.element('div').classes('mt-2'):
+                with ui.element('div').classes('mt-1'):
                     ui.label('Sleep:').classes('font-bold')
                     self.sleep_container = ui.row().classes('gap-0 inline-block')
                     self.update_stat_icons(self.sleep_container,  self.user.sleep,  "sleepsprite.png")
+                    self.sleep_timer_label = ui.label('').classes('block text-xs font-bold text-blue-600 mt-1').style('font-family: runescape;')
 
                 with ui.element('div').classes('mt-2'):
                     ui.label('Rank:').classes('font-bold')
@@ -596,10 +645,15 @@ class Game:
         if self.current_room != 'home':
             ui.navigate.to('/')
             self.current_room = 'home'
+        
         await asyncio.sleep(0.2)
-        await self.cameraAction(0, 0, 1.0, speed=2.0)
-        if self.cat_x != 50 or self.cat_y != 55:
-            await self.moveCat(50, 55, speed=1.5, run_anim="walk")
+
+        if self.user.isSleeping:
+            await self.cameraAction(-15, -15, 2.0, speed=2.0)
+        else:
+            await self.cameraAction(0, 0, 1.0, speed=2.0)
+            if self.cat_x != 50 or self.cat_y != 55:
+                await self.moveCat(50, 55, speed=1.5, run_anim="walk")
 
 
     async def shower(self): 
@@ -614,19 +668,39 @@ class Game:
         if self.current_room != 'home' and self.current_room != 'sleep':
             ui.navigate.to('/')
             self.current_room = 'home'
+        
         if self.current_room != 'sleep':
             self.current_room = 'sleep'
+        
         await asyncio.sleep(0.2)
         
-        await self.sleepbutasync()
+        if self.user.isSleeping:
+            await self.cameraAction(-15, -15, 2.0, speed=2.0)
+        else:
+            await self.sleepbutasync()
 
+    def setup_lifecycle_hooks(self):
+        async def set_status(is_online):
+            await User.filter(id=self.user.id).update(isLoggedIn=is_online)
+
+        asyncio.create_task(set_status(True))
+
+        ui.context.client.on_disconnect(lambda: set_status(False))
+    
     async def sleepbutasync(self):
+        if self.user.isSleeping: return
+
         self.cat.client.run_javascript('window.setTracking(false)')
         asyncio.create_task(self.cameraAction(-15, -15, 2.0, speed=3.0))
         await self.moveCat(38, 44, speed=1, run_anim="walk", restore_tracking=False)
         self.set_cat_orientation(True)
         await asyncio.sleep(0.5)
         await self.moveCat(53, 34, speed=1.0, run_anim="jump", end_anim="sleep", restore_tracking=False)
+        
+        self.user.isSleeping = True
+        self.user.sleep_start_time = datetime.now(timezone.utc)
+        self.user.sleep_stored_val = self.user.sleep 
+        await self.user.save()
 
     def eat(self): 
         
@@ -688,110 +762,185 @@ class Game:
         global values
         with self.dashwrapper:    
             spinner = ui.spinner(size='3em').classes('absolute-center')
+            
             await self.dashfetching()
 
             spinner.delete()
-
-            with ui.row().classes('w-full items-center justify-between mb-6'):
-                ui.label('Control Center').classes('text-3xl font-bold text-gray-800')
-                ui.button('Refresh Data', on_click=lambda: restofthedb.refresh()).classes('bg-blue-600 text-white pixelated pixel-3d px-4 py-2 rounded hover:bg-blue-700')
+            
             @ui.refreshable
             async def restofthedb():
-                await self.dashfetching()
-                with ui.row().classes('w-full gap-4 mb-8'):
-                    def stat_card(title, value, color_class):
-                        with ui.card().classes(f'flex-1 p-4 shadow-sm border-4 {color_class}'):
-                            ui.label(title).classes('text-gray-500 text-lg font-bold uppercase')
-                            ui.label(str(value)).classes('text-4xl font-bold text-gray-800')
+                try:
+                    await self.dashfetching()
+                    
+                    with ui.grid(columns=2).classes('w-full gap-6').style('grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));'):
 
-                    stat_card('Total Users', values[0]['total_users'], 'border-blue-500')
-                    stat_card('Online Now', values[0]['online_users'], 'border-green-500')
-                    stat_card('Global Economy ($)', f"${values[0]['total_money']:,}", 'border-yellow-500')
-                    stat_card('Avg Pet Health', f"{values[0]['avg_health']}%", 'border-red-500')
+                        with ui.column().classes('w-full gap-6'):
+                            
+                            with ui.grid(columns=4).classes('w-full gap-4').style('grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));'):
+                                def stat_card(title, value, color_class):
+                                    with ui.card().classes(f'w-full p-4 shadow-sm border-4 {color_class}'):
+                                        ui.label(title).classes('text-gray-500 text-lg font-bold uppercase')
+                                        ui.label(str(value)).classes('text-4xl font-bold text-gray-800')
 
-                with ui.row().classes('w-full gap-4 mb-8'):
-                    pie_data = [{"value": x['count'], "name": x['equipped_skin']} for x in values[1]]
-                    chart_bg = '#bd9a8e'
-                    text_color = '#3e2b26'
-                    color_palette = ['#7c5a52', '#a6857a', '#cbb0a8', '#f0e4d7', '#5c4033']
+                                stat_card('Total Users', values[0]['total_users'], 'border-blue-500')
+                                stat_card('Online Now', values[0]['online_users'], 'border-green-500')
+                                stat_card('Economy ($)', f"${values[0]['total_money']:,}", 'border-yellow-500')
+                                stat_card('Avg Health', f"{values[0]['avg_health']}%", 'border-red-500')
+
+                            pie_data = [{"value": x['count'], "name": x['equipped_skin']} for x in values[1]]
+                            chart_bg = '#bd9a8e'
+                            text_color = '#3e2b26'
+                            color_palette = ['#7c5a52', '#a6857a', '#cbb0a8', '#f0e4d7', '#5c4033', '#8b5e3c', '#b07e5a', '#d4a488', '#e8cfc1', '#3e2b26']
+
+                            with ui.grid(columns=2).classes('w-full gap-4 h-80').style('grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));'):
+                                with ui.card().classes('w-full h-full pixelated pixel-3d').style('background-color: #bd9a8e;'):
+                                    ui.label('Skin Distribution').classes('text-lg font-bold mb-2')
+                                    ui.echart({
+                                        'backgroundColor': chart_bg,
+                                        'color': color_palette,
+                                        'textStyle': {'fontFamily': 'runescape', 'color': text_color, 'fontSize' : 14},
+                                        'tooltip': {'trigger': 'item', 'backgroundColor': '#f0e4d7', 'textStyle': {'color': '#000', 'fontSize' : 16}},
+                                        'legend': {'type': 'scroll', 'bottom': '0', 'textStyle': {'color': text_color, 'fontSize' : 12}}, 
+                                        'series': [{
+                                            'name': 'Skins',
+                                            'type': 'pie',
+                                            'radius': ['40%', '65%'], 
+                                            'center': ['50%', '45%'],
+                                            'itemStyle': {'borderRadius': 4, 'borderColor': '#7c5a52', 'borderWidth': 2},
+                                            'label': {'show': False}, 
+                                            'data': pie_data
+                                        }]
+                                    }).classes('h-full w-full')
+
+                                with ui.card().classes('w-full h-full pixelated pixel-3d').style('background-color: #bd9a8e;'):
+                                    ui.label('Average Stats').classes('text-lg font-bold mb-2')
+                                    ui.echart({
+                                        'backgroundColor': chart_bg,
+                                        'textStyle': {'fontFamily': 'runescape', 'color': text_color},
+                                        'tooltip': {'trigger': 'axis', 'backgroundColor': '#f0e4d7', 'textStyle': {'color': '#000'}},
+                                        'grid': {'left': '3%', 'right': '4%', 'bottom': '3%', 'containLabel': True},
+                                        'xAxis': {'type': 'category', 'data': ['Hunger', 'Thirst', 'Sleep', 'Happy'], 'axisLabel': {'color': text_color}, 'axisLine': {'lineStyle': {'color': '#7c5a52'}}},
+                                        'yAxis': {'type': 'value', 'max': 100, 'axisLabel': {'color': text_color}, 'splitLine': {'lineStyle': {'color': '#a6857a', 'type': 'dashed'}}},
+                                        'series': [{
+                                            'data': values[2],
+                                            'type': 'bar',
+                                            'showBackground': True,
+                                            'backgroundStyle': {'color': 'rgba(124, 90, 82, 0.2)'},
+                                            'itemStyle': {'color': '#7c5a52', 'borderColor': '#3e2b26', 'borderWidth': 1} 
+                                        }]
+                                    }).classes('h-full w-full text-xl').style('font-family: runescape;')
+
+                            with ui.card().classes('w-full pixelated pixel-3d').style('background-color: #bd9a8e; color: #3e2b26; --q-primary: #7c5a52; '):
+                                ui.label('Richest Players').classes('text-lg font-bold mb-2')
+                                ui.table(
+                                    columns=[
+                                        {'name': 'username', 'label': 'Username', 'field': 'username', 'align': 'left'},
+                                        {'name': 'money', 'label': 'Money', 'field': 'money', 'sortable': True},
+                                        {'name': 'title', 'label': 'Title', 'field': 'title', 'align': 'left'},
+                                    ],
+                                    rows=values[3],
+                                    pagination=5
+                                ).classes('w-full').props('flat bordered separator="cell"').style('background-color: #bd9a8e; color: #3e2b26; --q-primary: #bd9a8e; font-size: 1.1rem; font-weight: bold; font-family: runescape;')
+
+                        with ui.column().classes('w-full h-full'):
+                            with ui.row().classes('w-full h-6 space-between mb-4'):
+                                ui.label('Master User List (Editable)').style('color: #7c5a52').classes('text-2xl font-bold mb-0')
+                                ui.button('Refresh Data', on_click=lambda: restofthedb.refresh()).classes('bg-blue-600 text-white pixelated pixel-3d px-4 py-2 rounded hover:bg-blue-700')
+                            
+                            grid = ui.aggrid({
+                                'columnDefs': [
+                                    {'headerName': 'ID', 'field': 'id', 'width': 60, 'sortable': True},
+                                    {'headerName': 'Username', 'field': 'username', 'sortable': True, 'filter': True, 'editable': True},
+                                    {'headerName': 'Email', 'field': 'email', 'sortable': True, 'filter': True, 'editable': True},
+                                    {'headerName': 'Skin', 'field': 'equipped_skin', 'sortable': True, 'width':120, 'editable': True, 'cellEditor': 'agSelectCellEditor', 'cellEditorParams': {'values': skinfolderarray}},
+                                    {'headerName': 'Money', 'field': 'money', 'sortable': True, 'editable': True},
+                                    {'headerName': 'Hunger', 'field': 'hunger', 'width': 100, 'editable': True},
+                                    {'headerName': 'Health', 'field': 'health', 'width': 90, 'editable': True},
+                                    {'headerName': 'Admin', 'field': 'isAdmin', 'width': 90, 'editable': True},
+                                    {'headerName': '🟢', 'field': 'isLoggedIn', 'width': 70},
+                                ],
+                                'rowData': values[4],
+                                'pagination': True,
+                                'paginationPageSize': 20,
+                                'defaultColDef': {
+                                    'resizable': True,
+                                    'cellStyle': {'borderRight': '1px solid #a6857a'},   
+                                }
+                            }, theme='balham').classes('w-full pixelated pixel-3d text-2xl')
+                            
+                            grid.style(
+                                'height: 80vh; ' 
+                                'border: 4px solid #7c5a52; '
+                                'color: #3e2b26; '
+                                '--q-primary: #7c5a52; '
+                                '--ag-background-color: #bd9a8e; '
+                                '--ag-foreground-color: #361007; '
+                                '--ag-header-background-color: #5A5A84; '
+                                '--ag-header-foreground-color: #F0E4D7; '
+                                '--ag-row-hover-color: #6e4638; ' 
+                                '--ag-odd-row-background-color: #bd9a8e; '
+                                'font-family: runescape; '
+                                '--ag-font-family: runescape; '
+                                '--ag-header-font-size: 1.2rem; '
+                                '--ag-data-font-size: 1.1rem; '
+                            )
+                            grid.on('cellValueChanged', self.handle_grid_update)
                     
                     
-                    with ui.card().classes('w-1/2 h-80 pixelated pixel-3d').style('background-color: #bd9a8e;'):
-                        ui.label('Skin Distribution').classes('text-lg font-bold mb-2')
-                        ui.echart({
-                            'backgroundColor': chart_bg,
-                            'color': color_palette,
-                            'textStyle': {'fontFamily': 'runescape', 'color': text_color, 'fontSize' : 14},
-                            'tooltip': {'trigger': 'item', 'backgroundColor': '#f0e4d7', 'textStyle': {'color': '#000', 'fontSize' : 16}},
-                            'legend': {'top': 'center', 'left': '5%', 'textStyle': {'color': text_color, 'fontSize' : 16}, 'orient': 'vertical'},
-                            'series': [{
-                                'name': 'Skins',
-                                'type': 'pie',
-                                'radius': ['40%', '70%'],
-                                'itemStyle': {'borderRadius': 4, 'borderColor': '#7c5a52', 'borderWidth': 2},
-                                'label': {'color': text_color},
-                                'data': pie_data
-                        }]
-                    }).classes('h-full w-full')
+                    with ui.card().classes('w-full p-6 border-4 border-blue-500 pixelated pixel-3d').style('background-color: #bd9a8e; color: #3e2b26;'):
+                        ui.label('Game Difficulty & Balance').classes('text-l font-bold mb-4').style('font-family: runescape;')
+                        
+                        def style_slider(slider_element):
+                            slider_element.props('label-always snap color="brown-10" track-color="orange-3" thumb-size="20px" track-size="8px"') \
+                                            .classes('w-full mt-2 mb-6') \
+                                            .style('font-family: runescape;')
 
-                    with ui.card().classes('w-1/2 h-80 pixelated pixel-3d').style('background-color: #bd9a8e;'):
-                        ui.label('Server-wide Average Vitals').classes('text-lg font-bold mb-2')
-                        ui.echart({
-                        'backgroundColor': chart_bg,
-                        'textStyle': {'fontFamily': 'runescape', 'color': text_color},
-                        'tooltip': {'trigger': 'axis', 'backgroundColor': '#f0e4d7', 'textStyle': {'color': '#000'}},
-                        'xAxis': {'type': 'category', 'data': ['Hunger', 'Thirst', 'Sleep', 'Happiness'], 'axisLabel': {'color': text_color}, 'axisLine': {'lineStyle': {'color': '#7c5a52'}}},
-                        'yAxis': {'type': 'value', 'max': 100, 'axisLabel': {'color': text_color}, 'splitLine': {'lineStyle': {'color': '#a6857a', 'type': 'dashed'}}},
-                        'series': [{
-                            'data': values[2],
-                            'type': 'bar',
-                            'showBackground': True,
-                            'backgroundStyle': {'color': 'rgba(124, 90, 82, 0.2)'},
-                            'itemStyle': {'color': '#7c5a52', 'borderColor': '#3e2b26', 'borderWidth': 1} 
-                        }]
-                    }).classes('h-full w-full')
+                        ui.label(f'Sleep Recovery Speed: {SLEEP_DURATION_HOURS} Hours to 100%').classes('font-bold').bind_text_from(globals(), 'SLEEP_DURATION_HOURS', backward=lambda x: f'Sleep Recovery Speed: {x} Hours to 100%')
+                        style_slider(ui.slider(min=1, max=12, step=1, value=SLEEP_DURATION_HOURS, on_change=self.set_sleep_duration))
+                        
+                        ui.separator().classes('bg-brown-800 my-4')
 
-                with ui.row().classes('w-full gap-4 mb-8 pixelated pixel-3d').style('border-radius: 0px;'):
-                    with ui.card().classes('w-1/2 pixelated pixel-3d').style('background-color: #bd9a8e; color: #3e2b26; --q-primary: #7c5a52;'):
-                        ui.label('Richest Players').classes('text-lg font-bold mb-2')
-                        ui.table(
-                            columns=[
-                                {'name': 'username', 'label': 'Username', 'field': 'username', 'align': 'left'},
-                                {'name': 'money', 'label': 'Money', 'field': 'money', 'sortable': True},
-                                {'name': 'title', 'label': 'Title', 'field': 'title', 'align': 'left'},
-                            ],
-                            rows=values[3],
-                            pagination=5
-                        ).classes('w-full text-xl').props('flat bordered separator="cell"').style('background-color: #bd9a8e; color: #3e2b26; --q-primary: #bd9a8e;')
+                        with ui.grid(columns=2).classes('w-full gap-8'):
+                            
+                            with ui.column().classes('w-full'):
+                                ui.label('Hunger Duration').classes('font-bold text-xl')
+                                ui.label(f'{HUNGER_HOURS} hours from Full to Starving').classes('text-l font-bold opacity-70').bind_text_from(globals(), 'HUNGER_HOURS', backward=lambda x: f'{x} hours from Full to Starving')
+                                style_slider(
+                                    ui.slider(min=1, max=48, step=1, value=HUNGER_HOURS, on_change=update_hunger_settings)
+                                    .bind_value(globals(), 'HUNGER_HOURS')
+                                )
 
-                  
-                ui.separator().style('background-color: #7c5a52; height: 2px;').classes('mt-8 mb-4')
-                ui.label('Master User List (Editable)').style('color: #7c5a52').classes('text-2xl font-bold mb-4')
-                
-                grid = ui.aggrid({
-                    'columnDefs': [
-                    {'headerName': 'ID', 'field': 'id', 'width': 70, 'sortable': True},
-                    {'headerName': 'Username', 'field': 'username', 'sortable': True, 'filter': True, 'editable': True},
-                    {'headerName': 'Email', 'field': 'email', 'sortable': True, 'filter': True, 'editable': True},
-                    {'headerName': 'Skin', 'field': 'equipped_skin', 'sortable': True, 'editable': True, 'cellEditor': 'agSelectCellEditor', 'cellEditorParams': {'values': skinfolderarray}},
-                    {'headerName': 'Money', 'field': 'money', 'sortable': True, 'editable': True},
-                    {'headerName': 'Hunger', 'field': 'hunger', 'width': 100, 'editable': True},
-                    {'headerName': 'Health', 'field': 'health', 'width': 100, 'editable': True},
-                    {'headerName': 'Admin', 'field': 'isAdmin', 'width': 100, 'editable': True},
-                ],
-                'rowData': values[4],
-                'pagination': True,
-                'paginationPageSize': 20,
-                'defaultColDef': {
-                    'resizable': True,
-                    'cellStyle': {'borderRight': '1px solid #a6857a'}
-                    
-                },
-                'themeMaterial': {'backgroundColor': "#61392C",
-      'foregroundColor': "#361008CC",}
-                }).classes('h-96 w-full pixelated pixel-3d').style('border: 4px solid #7c5a52; !background-color: #f0e4d7; color: #3e2b26; --q-primary: #7c5a52;')
-                
-                grid.on('cellValueChanged', self.handle_grid_update)
+                            with ui.column().classes('w-full'):
+                                ui.label('Thirst Duration').classes('font-bold text-xl')
+                                ui.label(f'{THIRST_HOURS} hours from Full to Dehydrate').classes('text-l font-bold opacity-70').bind_text_from(globals(), 'THIRST_HOURS', backward=lambda x: f'{x} hours from Full to Dehydrate')
+                                style_slider(
+                                    ui.slider(min=1, max=48, step=1, value=THIRST_HOURS, on_change=update_thirst_settings)
+                                    .bind_value(globals(), 'THIRST_HOURS')
+                                )
+
+                            with ui.column().classes('w-full'):
+                                ui.label('Energy Duration').classes('font-bold text-xl')
+                                ui.label(f'{SLEEP_DECAY_HOURS} hours from Awake to Exhausted').classes('text-l font-bold opacity-70').bind_text_from(globals(), 'SLEEP_DECAY_HOURS', backward=lambda x: f'{x} hours from Awake to Exhausted')
+                                style_slider(
+                                    ui.slider(min=1, max=72, step=1, value=SLEEP_DECAY_HOURS, on_change=update_sleep_decay_settings)
+                                    .bind_value(globals(), 'SLEEP_DECAY_HOURS')
+                                )
+
+                            with ui.column().classes('w-full'):
+                                ui.label('Hygiene Duration (Avg)').classes('font-bold text-xl')
+                                ui.label(f'{CLEAN_HOURS} hours on average until cat gets dirty').classes('text-l font-bold opacity-70').bind_text_from(globals(), 'CLEAN_HOURS', backward=lambda x: f'{x} hours on average until cat gets dirty')
+                                style_slider(
+                                    ui.slider(min=1, max=72, step=1, value=CLEAN_HOURS, on_change=update_clean_settings)
+                                    .bind_value(globals(), 'CLEAN_HOURS')
+                                )
+                                
+                                         
+                                    
+
+                except Exception as e:
+                    ui.notify(f"Error rendering dashboard: {e}").classes('text-red-500 text-xl font-bold')
+                    print(e) 
+
             await restofthedb()
     
     async def handle_grid_update(self, e):
@@ -902,9 +1051,9 @@ class Game:
                 if self.user.isAdmin:
                     self.button("dashboard")
 
-    def bottom_right_button(self):
-        with ui.element('div').classes('relative w-32 h-32 cursor-pointer').style('background-color: #bd9a8e; border-radius: 30%; border: 4px solid #7c5a52;'):
-            ui.image("/textures/swords.png").classes('w-24 h-24 cursor-pointer align-middle absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2').on('click', lambda: ui.notify('Battle button clicked'))
+    # def bottom_right_button(self):
+    #     with ui.element('div').classes('relative w-32 h-32 cursor-pointer').style('background-color: #bd9a8e; border-radius: 30%; border: 4px solid #7c5a52;'):
+    #         ui.image("/textures/swords.png").classes('w-24 h-24 cursor-pointer align-middle absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2').on('click', lambda: ui.notify('Battle button clicked'))
 
     async def foodbowl(self):
         if not self.readytoeat:
@@ -924,7 +1073,6 @@ class Game:
     async def cycleclasses(self):
         classes = ['showerhandle1', 'showerhandle2', 'showerhandle3', 'showerhandle4']
         
-        self.catjoy.classes(remove='custom-cursor')
         
         idx = 0
         while (self.water == True):
@@ -937,21 +1085,46 @@ class Game:
             return
         if self.petting_mode: 
             return
+            
         self.petting_mode = True
-        self.petting_score = 0
+        
+        self.petting_score = 0.0 
+        self.game_score = 0      
+        self.consecutive_misses = 0
+        self.game_stats = {
+            'perfect': 0,
+            'okay': 0,
+            'miss': 0,
+            'max_combo': 0,
+            'current_combo': 0
+        }
+        
         self.active_targets = []
         
         if self.move_task and not self.move_task.done():
             self.move_task.cancel()
         
-        self.petting_overlay = ui.element('div').classes('absolute inset-0 z-40')
+        ui.add_head_html('''
+            <style>
+                @keyframes pet_wiggle {
+                    0% { transform: translate(-50%, -50%) rotate(-10deg) scale(1.0); }
+                    50% { transform: translate(-50%, -50%) rotate(10deg) scale(1.1); }
+                    100% { transform: translate(-50%, -50%) rotate(-10deg) scale(1.0); }
+                }
+            </style>
+        ''')
+
+        self.petting_overlay = ui.element('div').classes('absolute inset-0 z-40 w-full h-full pointer-events-none')
         
         with self.petting_overlay:
-            # self.cat_joystick = ui.joystick(color='transparent', size=150, on_move=lambda e: self.catPet(e)).classes('absolute').style('width: 200px; height: 200px; bottom:20px; left:50vw;') 
-
             with ui.element('div').classes('absolute right-20 bg-black/30 border-2 border-white rounded').style('width:20vh; height:3vw; top:45vh; right:10vw; transform: rotate(-90deg);'):
                 self.score_bar = ui.linear_progress(value=0.0, show_value=False, color='pink').classes('absolute inset-0 w-full h-full')
-        
+            
+            ui.image('static/hand.png').classes('absolute w-32 h-32 z-0 opacity-70 pointer-events-none') \
+                .style('left: 60%; top: 65%; transform: translate(-50%, -50%); animation: pet_wiggle 0.6s infinite ease-in-out;')
+
+            self.combo_label = ui.label('').classes('absolute text-4xl font-bold text-white drop-shadow-lg').style('left: 50%; top: 30%; transform: translate(-50%, -50%); font-family: runescape;')
+
         cat_size = 15 
         center_x = self.cat_x + (cat_size / 2)
         center_y = self.cat_y + (cat_size / 2)
@@ -960,10 +1133,10 @@ class Game:
         zoom_target_y = -center_y + 50
         
         await self.cameraAction(zoom_target_x, zoom_target_y, 2.5, speed=3.0)
-        
+        self.doAnim("pet", 0.3)
         self.rhythm_task = asyncio.create_task(self.rhythm_loop())
 
-    async def stop_petting_game(self):
+    async def stop_petting_game(self, finished=False):
         self.petting_mode = False
         if self.rhythm_task:
             self.rhythm_task.cancel()
@@ -971,28 +1144,77 @@ class Game:
         if self.petting_overlay:
             self.petting_overlay.delete()
             self.petting_overlay = None
-        #     self.cat_joystick = None 
         
         for t in self.active_targets:
             try: t['el'].delete()
             except: pass
         self.active_targets = []
         
-        if self.room:
-            with self.room.client:
-                ui.notify(f"Game Over! Score: {int(self.petting_score * 100)}")
+        if finished:
+            total_hits = self.game_stats['perfect'] + self.game_stats['okay'] + self.game_stats['miss']
+            if total_hits > 0:
+                accuracy = ((self.game_stats['perfect'] * 1.0) + (self.game_stats['okay'] * 0.5)) / total_hits
+            else:
+                accuracy = 0
+            
+            acc_percent = accuracy * 100
+            
+            if acc_percent == 100: rank = "SS"
+            elif acc_percent >= 95: rank = "S"
+            elif acc_percent >= 90: rank = "A"
+            elif acc_percent >= 80: rank = "B"
+            elif acc_percent >= 70: rank = "C"
+            else: rank = "D"
+            
+            display_score = min(10000, self.game_score)
+            with self.room:
+                with ui.dialog() as dialog, ui.card().style('background-color: #FFF8E1; border: 4px solid #F59E0B; min-width: 400px; text-align: center; padding: 20px;'):
+                    ui.label('PETTING COMPLETE!').classes('text-3xl font-bold mb-2').style('font-family: runescape; color: #D97706;')
+                    
+                    rank_color = {'SS': '#00e676', 'S': '#00e676', 'A': '#2979ff', 'B': '#ffea00', 'C': '#ff9100', 'D': '#ff3d00'}[rank]
+                    ui.label(rank).style(f'font-size: 6rem; line-height: 1; font-weight: bold; font-family: runescape; color: {rank_color}; text-shadow: 3px 3px 0 #000;')
+                    
+                    ui.label(f'Score: {display_score}').classes('text-2xl font-bold mt-2').style('font-family: runescape;')
+                    ui.label(f'Accuracy: {acc_percent:.2f}%').classes('text-lg text-gray-600')
+                    
+                    ui.separator().classes('my-4')
+                    
+                    with ui.grid(columns=3).classes('w-full text-center'):
+                        with ui.column():
+                            ui.label('Perfect').classes('font-bold text-green-600')
+                            ui.label(str(self.game_stats['perfect'])).classes('text-xl')
+                        with ui.column():
+                            ui.label('Okay').classes('font-bold text-yellow-600')
+                            ui.label(str(self.game_stats['okay'])).classes('text-xl')
+                        with ui.column():
+                            ui.label('Miss').classes('font-bold text-red-600')
+                            ui.label(str(self.game_stats['miss'])).classes('text-xl')
+                    
+                    ui.label(f'Max Combo: {self.game_stats["max_combo"]}').classes('mt-4 text-lg font-bold text-blue-800')
+                    
+                    reward = int(display_score / 100)
+                    if reward > 0:
+                        self.user.money += reward
+                        asyncio.create_task(self.user.save())
+                        ui.label(f'+{reward} Coins').classes('text-xl font-bold text-green-700 animate-bounce mt-2')
+
+                    ui.button('Close', on_click=dialog.close).classes('mt-6 w-full').style('background-color: #F59E0B; color: white; font-family: runescape; border: 2px solid #78350F;')
+            
+            dialog.open()
         
         await self.cameraAction(0, 0, 1.0, speed=2.0)
 
-    def update_petting_score(self, points):
-        print(self.petting_score, points)
-        self.petting_score += (points / 100.0)
+    def update_petting_score(self, percent_add, raw_points=0):
+        self.petting_score += (percent_add / 100.0)
         self.petting_score = max(0.0, min(1.0, self.petting_score))
+        
         if self.score_bar:
             self.score_bar.value = self.petting_score
             
+        self.game_score += raw_points
+            
         if self.petting_score >= 1.0:
-            asyncio.create_task(self.stop_petting_game())
+            asyncio.create_task(self.stop_petting_game(finished=True))
 
     async def rhythm_loop(self):
         try:
@@ -1072,6 +1294,46 @@ class Game:
             #     'start_time': time.time(),
             #     'clicked': False
             # }
+            
+    def handle_miss(self, target):
+        self.game_stats['miss'] += 1
+        self.game_stats['current_combo'] = 0
+        self.consecutive_misses += 1
+        
+        if self.combo_label: self.combo_label.set_text('')
+        
+        self.update_petting_score(-5, 0)
+        self.show_hit_feedback(target, 'miss')
+        
+        if self.consecutive_misses >= 5:
+            asyncio.create_task(self.fail_game())        
+    
+    async def fail_game(self):
+        self.petting_mode = False
+        if self.rhythm_task: self.rhythm_task.cancel()
+        if self.petting_overlay: self.petting_overlay.delete()
+        
+        for t in self.active_targets:
+            try: t['el'].delete()
+            except: pass
+        self.active_targets = []
+
+        self.doAnim("walk", 0.15)
+        
+        run_x = 40 if self.cat_x > 50 else 60
+        run_y = 40 if self.cat_y > 50 else 60
+        
+        await self.cameraAction(0, 0, 1.0, speed=4.0)
+        await self.moveCat(run_x, run_y, speed=3.0, run_anim="walk", end_anim="idle")
+        
+        with ui.dialog() as dialog, ui.card().style('border: 4px solid red; background-color: #fce8e8; text-align: center;'):
+            ui.label("GAME OVER!").classes('text-3xl font-bold text-red-600 mb-2').style('font-family: runescape;')
+            ui.label("The cat got annoyed and ran away!").classes('text-lg')
+            ui.label(f"You missed 5 times in a row.").classes('text-sm text-gray-600')
+            ui.button('Okay...', on_click=dialog.close).classes('mt-4 bg-red-500 text-white w-full')
+        
+        dialog.open()
+    
     async def animate_target(self, target):
         duration = 1.2
         late_duration = 0.4
@@ -1098,8 +1360,7 @@ class Game:
                 
                 val = elapsed_late / late_duration
                 if val >= 1.0: 
-                    self.update_petting_score(-6)
-                    self.show_hit_feedback(target, 'miss')
+                    self.handle_miss(target)
                     target.el.style('opacity: 0;')
                     break
                 
@@ -1135,15 +1396,41 @@ class Game:
         target.clicked = True
         elapsed = hit_time - target.start_time
         
+        self.consecutive_misses = 0
+        
+        is_hit = False
+        
         if 1.1 <= elapsed <= 1.3:
-            self.update_petting_score(4)
+            self.game_stats['perfect'] += 1
+            self.game_stats['current_combo'] += 1
+            combo_mult = min(5, 1 + (self.game_stats['current_combo'] // 10)) 
+            points = 300 * combo_mult
+            
+            self.update_petting_score(4, points) 
             self.show_hit_feedback(target, 'perfect')
+            is_hit = True
+            
         elif (0.9 <= elapsed < 1.1) or (1.3 < elapsed <= 1.5):
-            self.update_petting_score(2)
+            self.game_stats['okay'] += 1
+            self.game_stats['current_combo'] += 1
+            combo_mult = min(5, 1 + (self.game_stats['current_combo'] // 10))
+            points = 100 * combo_mult
+            
+            self.update_petting_score(2, points) 
             self.show_hit_feedback(target, 'average')
+            is_hit = True
+            
         else:
-            self.update_petting_score(-6)
-            self.show_hit_feedback(target, 'miss')
+            self.handle_miss(target)
+            
+        if is_hit:
+            if self.game_stats['current_combo'] > self.game_stats['max_combo']:
+                self.game_stats['max_combo'] = self.game_stats['current_combo']
+                
+            if self.combo_label and self.game_stats['current_combo'] > 1:
+                self.combo_label.set_text(f"{self.game_stats['current_combo']}x")
+                self.combo_label.classes(remove='scale-100', add='scale-125')
+                ui.timer(0.1, lambda: self.combo_label.classes(remove='scale-125', add='scale-100') if self.combo_label else None)
             
         target.el.style('opacity: 0;')
 
@@ -1180,6 +1467,20 @@ class Game:
         with ui.element('div').classes('relative').style('left: 35%; top: 72.5%; width: 20%; height: 10%;'):
             self.bowlsUI()
         
+        if self.user.isSleeping:
+            self.cat_x = 53
+            self.cat_y = 34
+            initial_anim = "sleep"
+            
+            self.cam_x = -15
+            self.cam_y = -15
+            self.cam_zoom = 2.0
+        else:
+            initial_anim = "idle"
+            self.cam_x = 0
+            self.cam_y = 0
+            self.cam_zoom = 1.0
+
         self.cat = ui.element('div').classes('absolute z-30').style(
             f'left:{self.cat_x}%; top:{self.cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;').on('click.stop', self.start_petting_game) 
         
@@ -1191,15 +1492,35 @@ class Game:
                 self.Preload(f"{self.user.equipped_skin}/RunCatb.png", 6, "walk")
                 self.Preload(f"{self.user.equipped_skin}/JumpCatb.png", 12, "jump")
                 self.Preload(f"{self.user.equipped_skin}/SleepCatb.png", 2, "sleep")
-                    
-        ui.timer(0.1, lambda: self.doAnim("idle", 0.35), once=True)
+                
+        ui.timer(0.1, lambda: self.doAnim(initial_anim, 0.35), once=True)
         self.update_transform()
         
-        ui.timer(0, lambda: ui.run_javascript(f'window.startCatTracking("c{self.cat_visuals.id}")'), once=True)
+        if not self.user.isSleeping:
+            ui.timer(0, lambda: ui.run_javascript(f'window.startCatTracking("c{self.cat_visuals.id}")'), once=True)
+        else:
+            self.set_cat_orientation(True)
         
-
+    def set_sleep_duration(self, e):
+        global SLEEP_DURATION_HOURS
+        SLEEP_DURATION_HOURS = e.value
 
     def baseui(self, room_texture='Room.png', bg='bg-blue-200'):
+        self.setup_lifecycle_hooks()
+        if self.user.isSleeping and self.user.sleep_start_time:
+            print('true')
+            now = datetime.now(timezone.utc)
+            
+            start_time = self.user.sleep_start_time
+            
+            diff = now - start_time
+            seconds_passed = diff.total_seconds()
+            
+            total_seconds_needed = SLEEP_DURATION_HOURS * 3600
+            sleep_gained = (seconds_passed / total_seconds_needed) * 100
+            
+            self.user.sleep = min(100.0, self.user.sleep_stored_val + sleep_gained)
+            asyncio.create_task(self.user.save())
         if hasattr(self, '_stat_timer') and self._stat_timer:
             self._stat_timer.cancel()
             self._stat_timer = None
@@ -1210,8 +1531,8 @@ class Game:
                 self.stats_left()
             with ui.element('div').classes('absolute right-6 top-20 z-50'):
                 self.toolbar_right()
-            with ui.element('div').classes('absolute right-8 bottom-8 z-50'):
-                self.bottom_right_button()
+            # with ui.element('div').classes('absolute right-8 bottom-8 z-50'):
+            #     self.bottom_right_button()
             with ui.element('div').classes('absolute left-10 bottom-20 z-50'):
                 self.resetbut()
             with ui.element('div').classes('absolute inset-0 overflow-hidden'):
@@ -1241,8 +1562,7 @@ class Game:
         click_y_pct = (e.image_y / roomsize) * 100
 
         cat_size = 15 
-        if (self.cat_x <= click_x_pct <= self.cat_x + cat_size) and \
-           (self.cat_y <= click_y_pct <= self.cat_y + cat_size):
+        if (self.cat_x <= click_x_pct <= self.cat_x + cat_size) and (self.cat_y <= click_y_pct <= self.cat_y + cat_size):
             await self.start_petting_game()
             return
 
@@ -1251,6 +1571,13 @@ class Game:
 
         if self.move_task and not self.move_task.done():
             self.move_task.cancel()
+        
+        if self.user.isSleeping:
+            self.user.isSleeping = False
+            self.user.sleep_start_time = None
+            await self.user.save()
+            self.cat.client.run_javascript('window.setTracking(true)')
+            asyncio.create_task(self.cameraAction(0, 0, 1.0, speed=2.0))
        
         floor_min_y = 50   
         floor_max_y = 75  
@@ -1297,12 +1624,58 @@ class Game:
         
         self.user.hunger = max(0, self.user.hunger - hungerdecrement)
         self.user.thirst = max(0, self.user.thirst - thirstdecrement)
-        self.user.sleep = max(0, self.user.sleep - sleepdecrement)
+
+        if self.user.isSleeping:
+            total_seconds = SLEEP_DURATION_HOURS * 3600
+            inc_per_tick = (100 / total_seconds) * 0.1
+            self.user.sleep = min(100, self.user.sleep + inc_per_tick)
+            
+            time_left = get_remaining_time_str(self.user.sleep, SLEEP_DURATION_HOURS, is_filling=True)
+            self.sleep_timer_label.set_text(f"Waking up in: {time_left}")
+        else:
+            self.user.sleep = max(0, self.user.sleep - sleepdecrement)
+            self.sleep_timer_label.set_text("")
+
         if random.randint(1, cleanchance) == 1:
              self.user.cleanliness = False
-        
+
+        damage_multiplier = 0
+        if self.user.hunger <= 0: damage_multiplier += 1
+        if self.user.thirst <= 0: damage_multiplier += 1
+        if self.user.sleep <= 0:  damage_multiplier += 1
+
+        if damage_multiplier > 0:
+            damage = HEALTH_DECAY_PER_TICK * damage_multiplier
+            self.user.health = max(0, self.user.health - damage)
+        else:
+            self.user.health = min(100, self.user.health + HEALTH_REGEN_PER_TICK)
+
         await self.user.save()
-        
+
+        if hasattr(self, 'hud_health_bar') and self.hud_health_bar:
+            self.hud_health_bar.value = self.user.health / 100.0
+        if hasattr(self, 'hud_health_text') and self.hud_health_text:
+            self.hud_health_text.set_text(str(int(self.user.health)))
+
+        if hasattr(self, 'hud_energy_bar') and self.hud_energy_bar:
+            self.hud_energy_bar.value = self.user.sleep / 100.0
+        if hasattr(self, 'hud_energy_text') and self.hud_energy_text:
+            self.hud_energy_text.set_text(str(int(self.user.sleep)))
+
+        if hasattr(self, 'dirty_indicator'):
+            if self.user.cleanliness == False:
+                self.dirty_indicator.classes(remove='hidden')
+            else:
+                self.dirty_indicator.classes(add='hidden')
+
+        if hasattr(self, 'hunger_tooltip') and self.hunger_tooltip:
+            h_time = get_remaining_time_str(self.user.hunger, HUNGER_HOURS)
+            self.hunger_tooltip.set_text(f"Starving in: {h_time}")
+
+        if hasattr(self, 'thirst_tooltip') and self.thirst_tooltip:
+            t_time = get_remaining_time_str(self.user.thirst, THIRST_HOURS)
+            self.thirst_tooltip.set_text(f"Dehydrated in: {t_time}")
+            
         self.update_stat_icons(self.hunger_container, self.user.hunger, "foodsprite.png")
         self.update_stat_icons(self.thirst_container, self.user.thirst, "watersprite.png")
         self.update_stat_icons(self.sleep_container,  self.user.sleep,  "sleepsprite.png")
@@ -1355,7 +1728,7 @@ class Game:
         while self.water and progress < 1.0:
             overlap = await self.cat_visuals.client.run_javascript(f'return window.checkOverlap("c{self.cat_visuals.id}")')
             if overlap:
-                progress += 0.15
+                progress += 0.04
                 self.shower_progress_bar.value = progress
                 self.showernum.set_text(f"{int(progress * 100)}%")
             await asyncio.sleep(0.2)    
@@ -1378,6 +1751,7 @@ class Game:
         if self.water == False:
             self.water = True
             self.washstart = time.time()
+            self.canvas.classes(add='showerhandle1 showerhandle2 showerhandle3 showerhandle4')
             if self.evading:
                 self.evading.cancel()
             self.evading = asyncio.create_task(self.run_away_loop())
@@ -1396,7 +1770,6 @@ class Game:
             self.water = False
 
             self.canvas.classes(remove='showerhandle1 showerhandle2 showerhandle3 showerhandle4')
-            self.catjoy.classes(add='custom-cursor')
             
             if self.shower_task:
                 self.shower_task.cancel()
@@ -1425,7 +1798,7 @@ class Game:
             self.water = False
 
             self.canvas.classes(remove='showerhandle1 showerhandle2 showerhandle3 showerhandle4')
-            self.catjoy.classes(add='custom-cursor')
+            
             
             if self.shower_task:
                 self.shower_task.cancel()
@@ -1547,7 +1920,6 @@ class Game:
         await dialog
         self.user.thirst = 100
         await self.user.save()
-        self.staticons.refresh()
         print(self.user.thirst)
         self.switch_food_mode('eat')
 

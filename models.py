@@ -21,6 +21,9 @@ class User(models.Model):
     money = fields.IntField(default=20)
     isAdmin = fields.BooleanField(default=False)
     title = fields.CharField(max_length=100, default="Newborn Bundle")
+    isSleeping = fields.BooleanField(default=False)
+    sleep_start_time = fields.DatetimeField(null=True)
+    sleep_stored_val = fields.FloatField(default=0.0)
 
 
 async def init_db():
