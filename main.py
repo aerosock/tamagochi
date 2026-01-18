@@ -3,10 +3,13 @@ from tortoise import Tortoise, fields, models
 import pathlib
 from datetime import datetime, timezone
 import bcrypt
+import game
 from models import User, init_db
 from game import Game
 from pydantic import BaseModel, EmailStr, ValidationError
-
+from models import User
+from tortoise.functions import Count, Sum, Avg
+from tortoise import Tortoise
 
 
 BASE = pathlib.Path(__file__).parent
@@ -93,6 +96,37 @@ ui.add_head_html("""
         2px 2px 0px rgba(0, 0, 0, 0.3),
         inset 1px 1px 0px rgba(255, 255, 255, 0.2);
   }
+  @keyframes rainbow-text {
+    0% { color: #e60073; }
+    15% { color: #8e44ad; }
+    30% { color: #2980b9; }
+    45% { color: #27ae60; }
+    60% { color: #f1c40f; }
+    75% { color: #d35400; }
+    100% { color: #e60073; }
+}
+.celestial-text {
+animation: rainbow-text 3s infinite;
+font-weight: bold;
+text-shadow: 1px 1px 0px rgba(0,0,0,0.2);
+}
+.ag-theme-balham {
+--ag-background-color: #bd9a8e;
+--ag-header-background-color: #a6857a;
+--ag-odd-background-color: #cbb0a8;
+--ag-foreground-color: #3e2b26;
+--ag-border-color: #7c5a52;
+font-family: 'runescape';
+font-size: 1.1em;
+}
+.ag-header-cell-label {
+    color: #3e2b26;
+    font-weight: bold;
+}
+/* Custom scrollbar for the dashboard */
+::-webkit-scrollbar { width: 10px; }
+::-webkit-scrollbar-track { background: #bd9a8e; }
+::-webkit-scrollbar-thumb { background: #7c5a52; border: 1px solid #3e2b26; }
 </style>
 
 <script>
@@ -152,6 +186,8 @@ ui.add_head_html("""
 """, shared=True)
 
 
+
+
 class UserCreate(BaseModel):
     username: str
     password: str
@@ -199,6 +235,16 @@ async def route_settings():
         ui.navigate.to('/login')
         return
     game.settings_page()
+@ui.page('/dashboard')
+async def route_dashboard():
+    game = await get_current_game()
+    if not game:
+        ui.navigate.to('/login')
+        return
+    if not game.user.isAdmin:
+        ui.navigate.to('/')
+        return
+    game.dashboard_page()
 
 @ui.page('/login')
 async def route_login():
@@ -221,8 +267,10 @@ async def try_login(user_input, pwd_input, field, regbut):
     if user and bcrypt.checkpw(pwd_input.value.encode('utf-8'), user.password.encode('utf-8')):
         app.storage.user['user_id'] = user.id
         
-        active_games[user.id] = Game(user, on_logout_callback=remove_active_game)
-        
+        active_games[user.id] = game.Game(user, on_logout_callback=remove_active_game)
+        game_instance = await get_current_game()
+        game_instance.user.isLoggedIn = True
+        await user.save()
         ui.notify('Login successful!', color='positive')
 
         ui.navigate.to('/')

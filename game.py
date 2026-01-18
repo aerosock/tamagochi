@@ -8,6 +8,15 @@ from nicegui import ui, app, events
 from datetime import datetime, timezone
 from pydantic import BaseModel, EmailStr, ValidationError
 import bcrypt
+from collections import defaultdict
+from models import User
+from tortoise.functions import Count, Sum, Avg
+from tortoise import Tortoise
+
+hungerdecrement = 0.0027
+thirstdecrement = 0.0027
+sleepdecrement = 0.001
+cleanchance = 864000
 
 from models import User
 SPRITE_SCALE = 4
@@ -19,6 +28,46 @@ skinfolderarray = [
     "Demonic Cat", "Egypt Cat", "Siamese Cat", "Three Color Cat",
     "Tiger Cat", "Black Cat", "Halloween Cat", "Goofy White Cat"
 ]
+
+
+
+async def getdb_stats():
+    total_users = await User.all().count()
+    online_users = await User.filter(isLoggedIn=True).count()
+    
+    stats = await User.all().annotate(
+        total_money=Sum("money"),
+        avg_health=Avg("health")
+    ).first()
+    
+    total_money = stats.total_money if stats and stats.total_money else 0
+    avg_health = stats.avg_health if stats and stats.avg_health else 0
+
+    return {
+        "total_users": total_users,
+        "online_users": online_users,
+        "total_money": total_money,
+        "avg_health": round(avg_health, 1)
+    }
+
+async def get_skin_distribution():
+    data = await User.all().group_by("equipped_skin").annotate(count=Count("id")).values("equipped_skin", "count")
+    return data
+
+async def get_average_stats():
+    data = await User.all().annotate(avg_hunger=Avg("hunger"), avg_thirst=Avg("thirst"), avg_sleep=Avg("sleep"), avg_happiness=Avg("happiness")).first()
+
+    return [
+        data.avg_hunger,
+        data.avg_thirst,
+        data.avg_sleep,
+        data.avg_happiness
+    ]
+
+async def get_top_players(limit=10):
+    return await User.all().order_by("-money").limit(limit).values("id", "username", "money", "title")
+
+
 
 
 
@@ -115,7 +164,9 @@ class Game:
         if self.canvas:
             self.canvas.style(f'transform: translate({self.cam_x}%, {self.cam_y}%) scale({self.cam_zoom})')
 
-
+    
+   
+    
     def on_wheel(self, e):
         dy = e.args.get('deltaY', 0)
         zoom_factor = 1.1 ** self.cam_zoom_sens
@@ -141,6 +192,20 @@ class Game:
             local_frames.append(img)
         self.anim_arrays[anim_name] = local_frames
 
+    def decrementcalc(self, input, name):
+        global hungerdecrement, thirstdecrement, sleepdecrement, cleanchance
+        if name == 'hunger':
+            hungerdecrement = 100 / (input * 3600 * 10)
+        elif name == 'thirst':
+            thirstdecrement = 100 / (input * 3600 * 10)
+        elif name == 'sleep':   
+            sleepdecrement = 100 / (input * 3600 * 10)
+        elif name == 'cleanliness':     # 1 in 36000 once in 1h at one attempt each 0.1s
+            cleanchance = input * 36000 
+        
+         
+    
+    
     def doAnim(self, anim_name, time, cancel_current=True):
         if self.current_anim_task and cancel_current:
             self.current_anim_task.cancel()
@@ -300,15 +365,15 @@ class Game:
             ui.image("/textures/statusbar.png").classes('w-100 mb-2')
             with ui.element('div').classes('absolute left-33 top-9 w-63'):
                 ui.linear_progress(value=0.7, color='red', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
-                ui.badge('67').classes('absolute-full flex flex-center text-black bg-transparent text-xl content-center h-5')
+                ui.badge('50').classes('absolute-full flex flex-center text-black bg-transparent text-xl content-center h-5')
                 ui.image("/textures/heart.png").classes('absolute w-10 h-10 -left-5 -top-5')
             with ui.element('div').classes('absolute left-33 top-17 w-63'):
                 ui.linear_progress(value=0.7, color='yellow', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
-                ui.badge('67').classes('absolute-full flex flex-center text-pink bg-transparent text-xl h-5')
+                ui.badge('50').classes('absolute-full flex flex-center text-pink bg-transparent text-xl h-5')
                 ui.image("/textures/bolt.png").classes('absolute w-10 h-10 z-100 -left-5 -top-3')
             with ui.element('div').classes('absolute left-30 top-24'):
                 ui.image("/textures/coin.png").classes('w-12 h-12 inline-block ml-2')
-                ui.label('181122').classes('inline-block ml-2 text-2xl font-bold').style(
+                self.moneylabel = ui.label('0').classes('inline-block ml-2 text-2xl font-bold').style(
                     'transform: translateY(7px); color: #f0e68c; text-shadow: 2px 2px 3px #000;')
                 ui.circular_progress(value =0.5, show_value=False).props('instant-feedback').classes('inline-block ml-2')
                 ui.label('50%').classes('inline-block ml-2 text-lg font-bold').style('transform: translate(-45.5px, 4px); color: #82C8E5;')
@@ -316,9 +381,68 @@ class Game:
             with self.pfpplace:
                 self.changePfp()
                 
+    async def get_age_title(self):
+        diff = datetime.now(timezone.utc) - self.user.age
+        days_alive = diff.days
+        
+        milestones = [
+            (365, "LVL 10/10, Celestial Cat", 9),
+            (180, "LVL 9/10, Ancient Legend", 8),
+            (100, "LVL 8/10, Wise Elder", 7),
+            (60,  "LVL 7/10, Cozy Senior", 6),
+            (30,  "LVL 6/10, House Master", 5),
+            (14,  "LVL 5/10, Adult Hunter", 4),
+            (7,   "LVL 4/10, Feisty Teen", 3),
+            (3,   "LVL 3/10, Playful Junior", 2),
+            (1,   "LVL 2/10, Curious Kitten", 1),
+            (0,   "LVL 1/10, Newborn Bundle", 0),
+        ]
+
+        current_text = "LVL 1/10, Newborn Bundle"
+        current_idx = 0
+        
+        for threshold, title, idx in milestones:
+            if days_alive >= threshold:
+                current_text = title
+                current_idx = idx
+                break
+
+        old_idx = 0
+        for _, title, idx in milestones:
+            if title == self.user.title:
+                old_idx = idx
+                break
+
+        colors = [
+            "#6B7280", "#65A30D", "#059669", "#0891B2", "#2563EB", 
+            "#7C3AED", "#C026D3", "#DC2626", "#EA580C", "#B45309"
+        ]
+        
+        if self.ranklabel:
+            self.ranklabel.set_text(current_text)
+            if current_idx == 9:
+                self.ranklabel.classes(add='celestial-text')
+            else:
+                self.ranklabel.classes(remove='celestial-text')
+                self.ranklabel.style(f'color: {colors[current_idx]}; text-shadow: 1px 1px 2px #fff;')
+
+        if current_text != self.user.title:
+            if current_idx > old_idx:
+                reward_amount = (current_idx * 15) + 10 
                 
+                self.user.money += reward_amount
+                
+                self.show_levelup_dialog(current_text, reward_amount)
+
+            self.user.title = current_text
+            self.curtitle = current_text
+            asyncio.create_task(self.user.save())
+            
+
 
     def stats_left(self):
+        self.stat_cache = {} 
+
         with ui.element('div').classes('relative top-30'):
             ui.image("/textures/stats.png").classes('absolute w-70 mb-2')
             with ui.element('div').classes('absolute top-20 left-10 w-50 text-xl'):
@@ -342,15 +466,43 @@ class Game:
                 with ui.element('div').classes('mt-2'):
                     ui.label('Sleep:').classes('font-bold')
                     self.sleep_container = ui.row().classes('gap-0 inline-block')
-                    self.update_stat_icons(self.sleep_container, self.user.sleep, "sleepsprite.png")
+                    self.update_stat_icons(self.sleep_container,  self.user.sleep,  "sleepsprite.png")
 
+                with ui.element('div').classes('mt-2'):
+                    ui.label('Rank:').classes('font-bold')
+                    self.ranklabel = ui.label(self.user.title).classes('inline-block ml-2 font-semibold gap-0').style('color: #333; text-shadow: 1px 1px 2px #fff;')
+            
+            ui.timer(1.0, self.get_age_title)
+    
+    def show_levelup_dialog(self, new_title, reward):
+        with ui.dialog() as dialog, ui.card().style('background-color: #FFF8E1; border: 4px solid #F59E0B; min-width: 350px; text-align: center; padding: 20px;'):
+            ui.label('LEVEL UP!').classes('text-4xl font-bold mb-2').style('font-family: runescape; color: #D97706; text-shadow: 2px 2px 0px #000;')
+            
+            ui.label('Your cat has grown into a:').classes('text-gray-700 font-semibold')
+            ui.label(new_title).classes('text-xl font-bold mb-4').style('color: #B45309;')
+            
+            ui.separator().classes('mb-4 bg-orange-200')
+            
+            ui.label('Level Up Bonus:').classes('text-gray-600 font-bold')
+            with ui.row().classes('justify-center items-center w-full gap-2'):
+                ui.image('/textures/coin.png').classes('w-10 h-10 animate-bounce')
+                ui.label(f'+{reward}').classes('text-3xl font-bold text-green-600').style('font-family: runescape;')
+                
+            ui.button('Collect Reward', on_click=dialog.close).classes('mt-6 w-full').style('background-color: #F59E0B; color: white; font-family: runescape; border: 2px solid #78350F;')
+        
+        dialog.open()
     
     def update_stat_icons(self, container, stat, spritesheet):
+        if container is None or container.is_deleted:
+            return
+
         val = int(stat)
         full = val // 20 + (1 if val % 20 >= 15 else 0)
         half = 1 if full < 5 and 5 <= val % 20 < 15 else 0
         empty = 5 - full - half
+        
         current_state = (full, half)
+
         if self.stat_cache.get(container.id) == current_state:
             return
 
@@ -433,6 +585,8 @@ class Game:
                 await self.wardrobe()
             elif name == 'settings': 
                 await self.settings()
+            elif name == 'dashboard': 
+                await self.dashboard()
 
     async def settings(self):
         ui.navigate.to('/settings')
@@ -502,6 +656,160 @@ class Game:
     async def wardrobe(self): 
         ui.navigate.to('/wardrobe')
 
+    async def dashboard(self): 
+        ui.navigate.to('/dashboard')
+    
+    def dashboard_page(self):
+        self.current_room = 'dashboard'      
+        self.anim_arrays = {}
+        with ui.element('div').classes('fixed inset-0 pixelated').style(' overflow:hidden; height: 104vh; display: flex; align-items: center; justify-content: center; font-family: runescape; background-color: #f0e4d7; flex-direction: column;'):
+            with ui.element('div').classes('absolute right-6 top-3 z-50'):
+                self.toolbar_right("dashboard")
+            
+            ui.label('Dashboard').style('font-size: 3rem; color: #333; text-align: center; width:100vw; margin-top: 20px;')
+            
+            
+            self.dashwrapper = ui.scroll_area().classes('w-full h-full p-10')
+            with self.dashwrapper:
+                asyncio.create_task(self.dashinternal())
+            
+    @ui.refreshable
+    async def dashfetching(self):
+        global values
+        dbstats = await getdb_stats()
+        skin_data = await get_skin_distribution()
+        vital_data = await get_average_stats()
+        top_players = await get_top_players(10)
+        all_users = await User.all().values()
+        values = [dbstats, skin_data, vital_data, top_players, all_users]
+        
+    
+    async def dashinternal(self):
+        global values
+        with self.dashwrapper:    
+            spinner = ui.spinner(size='3em').classes('absolute-center')
+            await self.dashfetching()
+
+            spinner.delete()
+
+            with ui.row().classes('w-full items-center justify-between mb-6'):
+                ui.label('Control Center').classes('text-3xl font-bold text-gray-800')
+                ui.button('Refresh Data', on_click=lambda: restofthedb.refresh()).classes('bg-blue-600 text-white pixelated pixel-3d px-4 py-2 rounded hover:bg-blue-700')
+            @ui.refreshable
+            async def restofthedb():
+                await self.dashfetching()
+                with ui.row().classes('w-full gap-4 mb-8'):
+                    def stat_card(title, value, color_class):
+                        with ui.card().classes(f'flex-1 p-4 shadow-sm border-4 {color_class}'):
+                            ui.label(title).classes('text-gray-500 text-lg font-bold uppercase')
+                            ui.label(str(value)).classes('text-4xl font-bold text-gray-800')
+
+                    stat_card('Total Users', values[0]['total_users'], 'border-blue-500')
+                    stat_card('Online Now', values[0]['online_users'], 'border-green-500')
+                    stat_card('Global Economy ($)', f"${values[0]['total_money']:,}", 'border-yellow-500')
+                    stat_card('Avg Pet Health', f"{values[0]['avg_health']}%", 'border-red-500')
+
+                with ui.row().classes('w-full gap-4 mb-8'):
+                    pie_data = [{"value": x['count'], "name": x['equipped_skin']} for x in values[1]]
+                    chart_bg = '#bd9a8e'
+                    text_color = '#3e2b26'
+                    color_palette = ['#7c5a52', '#a6857a', '#cbb0a8', '#f0e4d7', '#5c4033']
+                    
+                    
+                    with ui.card().classes('w-1/2 h-80 pixelated pixel-3d').style('background-color: #bd9a8e;'):
+                        ui.label('Skin Distribution').classes('text-lg font-bold mb-2')
+                        ui.echart({
+                            'backgroundColor': chart_bg,
+                            'color': color_palette,
+                            'textStyle': {'fontFamily': 'runescape', 'color': text_color, 'fontSize' : 14},
+                            'tooltip': {'trigger': 'item', 'backgroundColor': '#f0e4d7', 'textStyle': {'color': '#000', 'fontSize' : 16}},
+                            'legend': {'top': 'center', 'left': '5%', 'textStyle': {'color': text_color, 'fontSize' : 16}, 'orient': 'vertical'},
+                            'series': [{
+                                'name': 'Skins',
+                                'type': 'pie',
+                                'radius': ['40%', '70%'],
+                                'itemStyle': {'borderRadius': 4, 'borderColor': '#7c5a52', 'borderWidth': 2},
+                                'label': {'color': text_color},
+                                'data': pie_data
+                        }]
+                    }).classes('h-full w-full')
+
+                    with ui.card().classes('w-1/2 h-80 pixelated pixel-3d').style('background-color: #bd9a8e;'):
+                        ui.label('Server-wide Average Vitals').classes('text-lg font-bold mb-2')
+                        ui.echart({
+                        'backgroundColor': chart_bg,
+                        'textStyle': {'fontFamily': 'runescape', 'color': text_color},
+                        'tooltip': {'trigger': 'axis', 'backgroundColor': '#f0e4d7', 'textStyle': {'color': '#000'}},
+                        'xAxis': {'type': 'category', 'data': ['Hunger', 'Thirst', 'Sleep', 'Happiness'], 'axisLabel': {'color': text_color}, 'axisLine': {'lineStyle': {'color': '#7c5a52'}}},
+                        'yAxis': {'type': 'value', 'max': 100, 'axisLabel': {'color': text_color}, 'splitLine': {'lineStyle': {'color': '#a6857a', 'type': 'dashed'}}},
+                        'series': [{
+                            'data': values[2],
+                            'type': 'bar',
+                            'showBackground': True,
+                            'backgroundStyle': {'color': 'rgba(124, 90, 82, 0.2)'},
+                            'itemStyle': {'color': '#7c5a52', 'borderColor': '#3e2b26', 'borderWidth': 1} 
+                        }]
+                    }).classes('h-full w-full')
+
+                with ui.row().classes('w-full gap-4 mb-8 pixelated pixel-3d').style('border-radius: 0px;'):
+                    with ui.card().classes('w-1/2 pixelated pixel-3d').style('background-color: #bd9a8e; color: #3e2b26; --q-primary: #7c5a52;'):
+                        ui.label('Richest Players').classes('text-lg font-bold mb-2')
+                        ui.table(
+                            columns=[
+                                {'name': 'username', 'label': 'Username', 'field': 'username', 'align': 'left'},
+                                {'name': 'money', 'label': 'Money', 'field': 'money', 'sortable': True},
+                                {'name': 'title', 'label': 'Title', 'field': 'title', 'align': 'left'},
+                            ],
+                            rows=values[3],
+                            pagination=5
+                        ).classes('w-full text-xl').props('flat bordered separator="cell"').style('background-color: #bd9a8e; color: #3e2b26; --q-primary: #bd9a8e;')
+
+                  
+                ui.separator().style('background-color: #7c5a52; height: 2px;').classes('mt-8 mb-4')
+                ui.label('Master User List (Editable)').style('color: #7c5a52').classes('text-2xl font-bold mb-4')
+                
+                grid = ui.aggrid({
+                    'columnDefs': [
+                    {'headerName': 'ID', 'field': 'id', 'width': 70, 'sortable': True},
+                    {'headerName': 'Username', 'field': 'username', 'sortable': True, 'filter': True, 'editable': True},
+                    {'headerName': 'Email', 'field': 'email', 'sortable': True, 'filter': True, 'editable': True},
+                    {'headerName': 'Skin', 'field': 'equipped_skin', 'sortable': True, 'editable': True, 'cellEditor': 'agSelectCellEditor', 'cellEditorParams': {'values': skinfolderarray}},
+                    {'headerName': 'Money', 'field': 'money', 'sortable': True, 'editable': True},
+                    {'headerName': 'Hunger', 'field': 'hunger', 'width': 100, 'editable': True},
+                    {'headerName': 'Health', 'field': 'health', 'width': 100, 'editable': True},
+                    {'headerName': 'Admin', 'field': 'isAdmin', 'width': 100, 'editable': True},
+                ],
+                'rowData': values[4],
+                'pagination': True,
+                'paginationPageSize': 20,
+                'defaultColDef': {
+                    'resizable': True,
+                    'cellStyle': {'borderRight': '1px solid #a6857a'}
+                    
+                },
+                'themeMaterial': {'backgroundColor': "#61392C",
+      'foregroundColor': "#361008CC",}
+                }).classes('h-96 w-full pixelated pixel-3d').style('border: 4px solid #7c5a52; !background-color: #f0e4d7; color: #3e2b26; --q-primary: #7c5a52;')
+                
+                grid.on('cellValueChanged', self.handle_grid_update)
+            await restofthedb()
+    
+    async def handle_grid_update(self, e):
+        row_data = e.args['data']
+        new_value = e.args['newValue']
+        field = e.args['colId']
+        user_id = row_data['id']
+
+        if field in ['money', 'hunger', 'thirst', 'sleep', 'health']:
+            try:
+                new_value = int(new_value)
+            except ValueError:
+                ui.notify(f"Invalid value for {field}", color='negative')
+                return
+
+        await User.filter(id=user_id).update(**{field: new_value})
+        ui.notify(f"Updated User {user_id}: {field} -> {new_value}", color='positive')  
+    
     def settings_page(self):
         self.current_room = 'settings'      
         self.anim_arrays = {}
@@ -572,14 +880,27 @@ class Game:
                     buttonDown.classes(remove='opacity-0', add='opacity-100')
                     icon.style('transform: translate(-50%, -55%) perspective(600px) scaleY(1.02);')
 
-    def toolbar_right(self):
-        with ui.column().classes('gap-3 z-50'):
-            self.button("home")
-            self.button("shower")
-            self.button("sleep")
-            self.button("foodbowl")
-            self.button("wardrobe")
-            self.button("settings")
+    def toolbar_right(self, page=None):
+        if page == 'dashboard':
+            with ui.row().classes('gap-3 z-50'):
+                self.button("home")
+                self.button("shower")
+                self.button("sleep")
+                self.button("foodbowl")
+                self.button("wardrobe")
+                self.button("settings")
+                if self.user.isAdmin:
+                    self.button("dashboard")
+        else:
+            with ui.column().classes('gap-3 z-50'):
+                self.button("home")
+                self.button("shower")
+                self.button("sleep")
+                self.button("foodbowl")
+                self.button("wardrobe")
+                self.button("settings")
+                if self.user.isAdmin:
+                    self.button("dashboard")
 
     def bottom_right_button(self):
         with ui.element('div').classes('relative w-32 h-32 cursor-pointer').style('background-color: #bd9a8e; border-radius: 30%; border: 4px solid #7c5a52;'):
@@ -909,7 +1230,7 @@ class Game:
                     
                     self.room = ui.element('div').classes('absolute inset-0 pointer-events-none')
         
-        self._stat_timer = ui.timer(0.5, self.statuscheck)
+        self._stat_timer = ui.timer(0.1, self.statuscheck)
         self.loading_overlay()
 
     async def mouse_handler(self, e: events.MouseEventArguments):
@@ -966,7 +1287,6 @@ class Game:
         if not self.isloggedin:
             return
         
-        print(self.user.hunger, self.user.thirst, self.user.sleep)
         if self.cam_x != 0.0 or self.cam_y != 0.0 or self.cam_zoom != 1.0:
             self.reseticon.classes(remove='opacity-0', add='opacity-100')
         else:
@@ -975,9 +1295,11 @@ class Game:
         self.age_display.set_text(f"Age: {self.agecheck()}")    
         self.agetip.set_text(f'{self.agecheck(tooltip=True)}')
         
-        self.user.hunger = max(0, self.user.hunger - 0.4)
-        self.user.thirst = max(0, self.user.thirst - 0.03)
-        self.user.sleep = max(0, self.user.sleep - 0.01)
+        self.user.hunger = max(0, self.user.hunger - hungerdecrement)
+        self.user.thirst = max(0, self.user.thirst - thirstdecrement)
+        self.user.sleep = max(0, self.user.sleep - sleepdecrement)
+        if random.randint(1, cleanchance) == 1:
+             self.user.cleanliness = False
         
         await self.user.save()
         
@@ -1088,6 +1410,8 @@ class Game:
             with ui.dialog() as dialog, ui.card().style( 'padding: 2vw; background-color: rgb(255, 210, 194);').classes('pixel-border pixel-3d'):
                 # self.user.mood-=mooddebuff
                 self.user.mood = 33
+                self.user.cleanliness = True
+                asyncio.create_task(self.user.save())
                 asyncio.create_task(self.user.save())
                 ui.label(f'You have cleaned your cat!\n Time taken: {int(timedif)} seconds.\n The subsequent debuff for washing is -{mooddebuff} mood points. Cats hate water!').classes('text-xl font-bold').style('font-family: runescape; color: #7c5a52;')
                 ui.button('Go Home', on_click=dialog.close, color='rgb(255, 210, 194)').style('background-color: #7c5a52; color: white; font-family: runescape; font-size: 1.2vw; padding: 0.5vw 1vw; border-radius: none; margin-top: 1vw;').classes('pixel-border pixel-3d')

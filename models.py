@@ -10,7 +10,7 @@ class User(models.Model):
     hunger = fields.IntField(default=100)
     thirst = fields.IntField(default=100)
     sleep = fields.IntField(default=100)
-    cleanliness = fields.IntField(default=100)
+    cleanliness = fields.BooleanField(default=True)
     health = fields.IntField(default=100)
     happiness = fields.IntField(default=100)
     isLoggedIn = fields.BooleanField(default=False)
@@ -18,6 +18,9 @@ class User(models.Model):
     mood = fields.IntField(default=100)
     isnewuser = fields.BooleanField(default=True)
     energy = fields.IntField(default=100)
+    money = fields.IntField(default=20)
+    isAdmin = fields.BooleanField(default=False)
+    title = fields.CharField(max_length=100, default="Newborn Bundle")
 
 
 async def init_db():
