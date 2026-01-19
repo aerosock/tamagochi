@@ -19,6 +19,7 @@ active_games = {}
 
 ui.add_head_html("""
 <style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 @keyframes glow-pulse {
   0% { box-shadow: 0 0 5px #fff; }
   50% { box-shadow: 0 0 20px #fff, 0 0 10px #bd9a8e; }
@@ -106,6 +107,7 @@ ui.add_head_html("""
     75% { color: #d35400; }
     100% { color: #e60073; }
 }
+
 .celestial-text {
 animation: rainbow-text 3s infinite;
 font-weight: bold;
@@ -124,7 +126,86 @@ font-size: 1.1em;
     color: #f0e4d7;
     font-weight: bold;
 }
+@media (max-width: 768px) {
+  .desktop-stats {
+    display: none ! important;
+  }
+  
+  .mobile-stats-toggle {
+    display: flex !important;
+  }
+  
+  .mobile-hud {
+    transform: scale(0.6);
+    transform-origin: top left;
+  }
+  
+  .mobile-toolbar {
+    transform: scale(0.65);
+    transform-origin: top right;
+  }
+  
+  .mobile-stats-panel {
+    position: fixed ! important;
+    left: 0;
+    top: 0;
+    width: 75vw;
+    max-width: 300px;
+    height: 100vh;
+    background:  rgba(240, 228, 215, 0.98);
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    overflow-y: auto;
+    padding: 60px 10px 10px 10px;
+    box-shadow: 4px 0 15px rgba(0,0,0,0.3);
+  }
+  
+  .mobile-stats-panel.open {
+    transform: translateX(0) !important;
+  }
+  
+  .stats-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 199;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  
+  .stats-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
 
+@media (min-width: 769px) {
+  .mobile-stats-toggle {
+    display: none !important;
+  }
+  
+  .mobile-stats-panel {
+    display: none !important;
+  }
+  
+  .stats-overlay {
+    display: none !important;
+  }
+  
+  .desktop-stats {
+    display: block !important;
+  }
+  
+  .mobile-hud {
+    transform: none;
+  }
+  
+  .mobile-toolbar {
+    transform:  none;
+  }
+}
 </style>
 
 <script>
@@ -180,6 +261,40 @@ font-size: 1.1em;
         element.style.transform = 'scaleX(-1)';
     }
   });
+  (function() {
+  let initialDistance = 0;
+  let initialZoom = 1;
+  
+  document.addEventListener('touchstart', function(e) {
+    if (e.touches.length === 2) {
+      initialDistance = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      // Get current zoom from the transform
+      const canvas = document.querySelector('[style*="transform-origin: center center"]');
+      if (canvas) {
+        const match = canvas.style.transform.match(/scale\\(([\\d.]+)\\)/);
+        initialZoom = match ? parseFloat(match[1]) : 1;
+      }
+    }
+  }, { passive: false });
+  
+  document.addEventListener('touchmove', function(e) {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const currentDistance = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const scale = (currentDistance / initialDistance) * initialZoom;
+      const clampedScale = Math.max(0.5, Math.min(2.0, scale));
+      
+      // Emit custom event that NiceGUI can catch
+      window.dispatchEvent(new CustomEvent('pinchZoom', { detail: { zoom: clampedScale } }));
+    }
+  }, { passive: false });
+})();
 </script>
 """, shared=True)
 

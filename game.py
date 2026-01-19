@@ -111,7 +111,7 @@ def get_remaining_time_str(current_val, total_hours_setting, is_filling=False):
 
 
 
-def clamp(v, lo=0.5, hi=2.0):
+def clamp(v, lo=0.5, hi=4.0): 
     return max(lo, min(hi, v))
 
 def spriteHandler(xs, ys, xe, ye, name, scale: int = 1):
@@ -213,7 +213,7 @@ class Game:
             self.cam_zoom = clamp(self.cam_zoom / zoom_factor)
         else:
             self.cam_zoom = clamp(self.cam_zoom * zoom_factor)
-            
+        print(self.cam_zoom)
         self.update_transform()
 
     def set_cat_orientation(self, facing_right: bool):
@@ -398,25 +398,30 @@ class Game:
     @ui.refreshable
     def changePfp(self):
         
-        ui.image(spriteCycler(0, 0, 32, f"{self.user.equipped_skin}/Sittingb.png", scale=SPRITE_SCALE)).classes('w-25 h-25')
+            ui.image(spriteCycler(0, 0, 32, f"{self.user.equipped_skin}/Sittingb.png", scale=2)).classes('w-full h-full object-contain')
             
 
     def hud_top_left(self):
-        with ui.element('div').classes('relative pixelated'):
-            ui.image("/textures/statusbar.png").classes('w-100 mb-2')
-            with ui.element('div').classes('absolute left-33 top-9 w-63'):
-                self.hud_health_bar = ui.linear_progress(value=1.0, color='red', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
-                self.hud_health_text = ui.badge('100').classes('absolute-full flex flex-center text-black bg-transparent text-xl content-center h-5')
-                ui.image("/textures/heart.png").classes('absolute w-10 h-10 -left-5 -top-5')
-            with ui.element('div').classes('absolute left-33 top-17 w-63'):
-                self.hud_energy_bar = ui.linear_progress(value=1.0, color='yellow', show_value=False).props('instant-feedback').classes('absolute w-63 h-5')
-                self.hud_energy_text = ui.badge('100').classes('absolute-full flex flex-center text-pink bg-transparent text-xl h-5')
-            with ui.element('div').classes('absolute left-30 top-24'):
-                ui.image("/textures/coin.png").classes('w-12 h-12 inline-block ml-2')
-                self.moneylabel = ui.label(str(self.user.money)).classes('inline-block ml-2 text-2xl font-bold').style(
-                    'transform: translateY(7px); color: #f0e68c; text-shadow: 2px 2px 3px #000;')
-               
-            self.pfpplace = ui.element('div').classes('absolute left-4 top-8')
+        with ui.element('div').classes('relative pixelated').style('width: 280px; height: 105px;'):
+            ui.image("/textures/statusbar.png").classes('w-full h-auto')
+            
+            with ui.element('div').classes('absolute').style('left: 92px; top: 20px; width: 168px;'):
+                self.hud_health_bar = ui.linear_progress(value=1.0, color='red', show_value=False).props('instant-feedback').classes('absolute w-full h-5')
+                self.hud_health_text = ui.badge('100').classes('absolute-full flex flex-center text-black bg-transparent text-lg content-center h-5')
+                ui.image("/textures/heart.png").classes('absolute w-8 h-8').style('left: -18px; top: -8px;')
+            
+            with ui.element('div').classes('absolute').style('left: 92px; top:  42px; width: 168px;'):
+                self.hud_energy_bar = ui.linear_progress(value=1.0, color='yellow', show_value=False).props('instant-feedback').classes('absolute w-full h-5')
+                self.hud_energy_text = ui.badge('100').classes('absolute-full flex flex-center text-pink bg-transparent text-lg h-5')
+            
+            with ui.element('div').classes('absolute').style('left: 84px; top: 64px;'):
+                ui.image("/textures/coin.png").classes('w-8 h-8 inline-block')
+                self.moneylabel = ui.label(str(self.user.money)).classes('inline-block ml-1 text-lg font-bold').style(
+                    'transform: translateY(2px); color: #f0e68c; text-shadow: 2px 2px 3px #000;')
+            
+            self.pfpplace = ui.element('div').classes('absolute').style(
+                'left: 4px; top: 12px; width: 72px; height: 72px; overflow: hidden;'
+            )
             with self.pfpplace:
                 self.changePfp()
                 
@@ -1016,7 +1021,7 @@ class Game:
 
     def button(self, name: str):
         with ui.element('div').classes('inline-block'):
-            with ui.element('div').classes('relative w-16 h-16 cursor-pointer').on('click', lambda e, n=name: self.press(n)):
+            with ui.element('div').classes('relative w-20 h-20 md:w-16 md:h-16 cursor-pointer').on('click', lambda e, n=name: self.press(n)):
                 buttonUp = ui.image("/textures/button1.png").classes('absolute inset-0 w-full h-full object-contain opacity-100')
                 buttonDown = ui.image("/textures/button2.png").classes('absolute inset-0 w-full h-full object-contain opacity-0')
                 icon = ui.image(f"/textures/{name}.png").style(
@@ -1505,55 +1510,132 @@ class Game:
         global SLEEP_DURATION_HOURS
         SLEEP_DURATION_HOURS = e.value
 
+    def stats_left_mobile(self):
+        with ui.element('div').classes('p-2'):
+            with ui.element('div').classes('mb-2 hidden') as self.dirty_indicator_mobile:
+                ui.label('NEEDS BATH! ').classes('text-red-600 font-bold bg-white px-1 rounded').style('font-family: runescape; font-size: 0.8rem;')
+            
+            ui.label(self.user.username).classes('font-bold text-lg')
+            self.age_display_mobile = ui.label(f'Age: {self.agecheck()}').classes('text-base')
+            
+            ui.separator().classes('my-2')
+            
+            with ui.element('div').classes('mb-2'):
+                ui.label('Hunger: ').classes('font-bold text-sm')
+                self.hunger_container_mobile = ui.row().classes('gap-0')
+                self.update_stat_icons(self.hunger_container_mobile, self.user.hunger, "foodsprite.png")
+            
+            with ui.element('div').classes('mb-2'):
+                ui.label('Thirst:').classes('font-bold text-sm')
+                self.thirst_container_mobile = ui.row().classes('gap-0')
+                self.update_stat_icons(self.thirst_container_mobile, self.user.thirst, "watersprite.png")
+            
+            with ui.element('div').classes('mb-2'):
+                ui.label('Sleep:').classes('font-bold text-sm')
+                self.sleep_container_mobile = ui.row().classes('gap-0')
+                self.update_stat_icons(self.sleep_container_mobile, self.user.sleep, "sleepsprite.png")
+            
+            ui.separator().classes('my-2')
+            
+            ui.label('Rank:').classes('font-bold text-sm')
+            self.ranklabel_mobile = ui.label(self.user.title).classes('text-sm font-semibold').style('color: #333;')
+    
     def baseui(self, room_texture='Room.png', bg='bg-blue-200'):
         self.setup_lifecycle_hooks()
-        if self.user.isSleeping and self.user.sleep_start_time:
+        if self.user.isSleeping and self.user.sleep_start_time:  
             print('true')
             now = datetime.now(timezone.utc)
-            
             start_time = self.user.sleep_start_time
-            
             diff = now - start_time
             seconds_passed = diff.total_seconds()
-            
             total_seconds_needed = SLEEP_DURATION_HOURS * 3600
             sleep_gained = (seconds_passed / total_seconds_needed) * 100
-            
             self.user.sleep = min(100.0, self.user.sleep_stored_val + sleep_gained)
             asyncio.create_task(self.user.save())
+        
         if hasattr(self, '_stat_timer') and self._stat_timer:
             self._stat_timer.cancel()
             self._stat_timer = None
+        
         with ui.element('div').classes(f'fixed inset-0 {bg} overflow-hidden pixelated'):
-            with ui.element('div').classes('absolute left-6 top-6 z-50'):
-                self.hud_top_left()
-            with ui.element('div').classes('absolute left-6 top-40 z-50'):
+            
+            self.stats_overlay = ui.element('div').classes('stats-overlay').on('click', self.toggle_mobile_stats)
+            
+            self.mobile_stats_panel = ui.element('div').classes('mobile-stats-panel')
+            with self.mobile_stats_panel:
+                ui.button(icon='close', on_click=self.toggle_mobile_stats).classes('absolute right-2 top-2 z-10').props('flat round dense color="brown"')
+                ui.label('Stats').classes('text-xl font-bold mb-2 mt-2').style('font-family: runescape;')
+                self.stats_left_mobile()
+            
+            with ui.element('div').classes('fixed left-4 bottom-20 z-50 mobile-stats-toggle').style('display: none;'):
+                ui.button(icon='menu', on_click=self.toggle_mobile_stats).props('square size="lg" pixelated pixel-3d').style(
+                    'background-color: #bd9a8e; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);'
+                )
+            
+            with ui.element('div').classes('absolute left-6 top-40 z-50 desktop-stats'):
                 self.stats_left()
-            with ui.element('div').classes('absolute right-6 top-20 z-50'):
+            
+            with ui.element('div').classes('absolute left-2 top-2 z-50 mobile-hud'):
+                self.hud_top_left()
+            
+            with ui.element('div').classes('absolute right-2 top-2 z-50 mobile-toolbar'):
                 self.toolbar_right()
-            # with ui.element('div').classes('absolute right-8 bottom-8 z-50'):
-            #     self.bottom_right_button()
-            with ui.element('div').classes('absolute left-10 bottom-20 z-50'):
+            
+            with ui.element('div').classes('fixed left-4 bottom-4 z-40'):
                 self.resetbut()
+            
             with ui.element('div').classes('absolute inset-0 overflow-hidden'):
                 ui.timer(0.1, lambda: self.newcommer_banner(), once=True)
             
             room_wrapper = ui.element('div').classes('absolute inset-0 flex items-center justify-center z-0 pointer-events-none')
             with room_wrapper:
-                self.canvas = ui.element('div').classes('relative w-[min(50vw,1800px)] aspect-[1/1] bg-transparent pointer-events-auto').style('transform-origin: center center; transition: transform 80ms ease-out;')
+                self.canvas = ui.element('div').classes(
+                    'relative bg-transparent pointer-events-auto aspect-[1/1] '
+                    'w-[min(85vw,85vh,50vw,1800px)]'
+                ).style('transform-origin: center center; transition: transform 80ms ease-out;')
                 self.canvas.on('wheel', self.on_wheel)
                 
                 with self.canvas:
-                    if room_texture in ['bigbowl.png', 'waterbowl.png']:
+                    if room_texture in ['bigbowl.png', 'waterbowl.png']: 
                         self.roomim = ui.image(f'/textures/{room_texture}').classes('absolute inset-0 w-full h-full object-contain select-none pointer-events-none')
                     else:
                         self.roomim = ui.interactive_image(f'/textures/{room_texture}', on_mouse=self.mouse_handler, events=['mousedown', 'mouseup'], cross=False, sanitize=False)
                     
                     self.room = ui.element('div').classes('absolute inset-0 pointer-events-none')
-        
+        ui.timer(0.2, self.set_initial_mobile_zoom, once=True)
         self._stat_timer = ui.timer(0.1, self.statuscheck)
         self.loading_overlay()
-
+        
+    def set_initial_mobile_zoom(self):
+        ui.run_javascript('''
+            if (window.innerWidth <= 768) {
+                // Dispatch event to Python or directly set zoom
+                window.dispatchEvent(new CustomEvent('setMobileZoom', { detail: { zoom: 2.0 } }));
+            }
+        ''')
+        async def check_and_set():
+            is_mobile = await ui.run_javascript('return window.innerWidth <= 768')
+            if is_mobile and not self.user.isSleeping:
+                self.cam_zoom = 2.0
+                self.update_transform()
+        asyncio.create_task(check_and_set())
+    
+    
+    
+    def on_pinch_zoom(self, zoom):
+        self.cam_zoom = max(0.5, min(2.0, zoom))
+        self.update_transform()
+        
+    def toggle_mobile_stats(self):
+    
+        ui.run_javascript('''
+            const panel = document.querySelector('.mobile-stats-panel');
+            const overlay = document.querySelector('.stats-overlay');
+            panel.classList.toggle('open');
+            overlay.classList.toggle('open');
+            
+        ''')
+    
     async def mouse_handler(self, e: events.MouseEventArguments):
         if self.current_room == 'food': 
             return
@@ -1625,6 +1707,24 @@ class Game:
         self.user.hunger = max(0, self.user.hunger - hungerdecrement)
         self.user.thirst = max(0, self.user.thirst - thirstdecrement)
 
+        if hasattr(self, 'age_display_mobile') and self.age_display_mobile:
+            self.age_display_mobile.set_text(f"Age: {self.agecheck()}")
+        
+        if hasattr(self, 'hunger_container_mobile') and self.hunger_container_mobile:
+            self.update_stat_icons(self.hunger_container_mobile, self.user.hunger, "foodsprite.png")
+        if hasattr(self, 'thirst_container_mobile') and self.thirst_container_mobile:
+            self.update_stat_icons(self.thirst_container_mobile, self.user.thirst, "watersprite.png")
+        if hasattr(self, 'sleep_container_mobile') and self.sleep_container_mobile:
+            self.update_stat_icons(self.sleep_container_mobile, self.user.sleep, "sleepsprite.png")
+        if hasattr(self, 'ranklabel_mobile') and self.ranklabel_mobile:
+            self.ranklabel_mobile.set_text(self.user.title if hasattr(self, 'curtitle') else self.user.title)
+        
+        if hasattr(self, 'dirty_indicator_mobile') and self.dirty_indicator_mobile:
+            if self.user.cleanliness == False:
+                self.dirty_indicator_mobile.classes(remove='hidden')
+            else:
+                self.dirty_indicator_mobile.classes(add='hidden')
+        
         if self.user.isSleeping:
             total_seconds = SLEEP_DURATION_HOURS * 3600
             inc_per_tick = (100 / total_seconds) * 0.1
@@ -1689,8 +1789,8 @@ class Game:
         ui.navigate.to('/login')
     
     def resetbut(self):
-        self.reseticon = ui.image(spriteHandler(487, 256, 22, 16, "catUI.png", scale=SPRITE_SCALE)).classes('w-10 h-10 cursor-pointer absolute opacity-0').style('left:0%; top:0%;').on('click', self.reset)
-
+        self.reseticon = ui.image(spriteHandler(487, 256, 22, 16, "catUI.png", scale=SPRITE_SCALE)).classes('w-12 h-12 cursor-pointer opacity-0').on('click', self.reset)
+    
     async def reset(self):
         self.cam_x = 0.0
         self.cam_y = 0.0
@@ -2034,7 +2134,7 @@ class Game:
     def skinsui(self):
         self.cat_x = 40
         with self.room:
-            ui.element('div').classes('absolute object-contain pointer-events-auto cursor-pointer z-20').style('width: 20vw; height: 25vh; right:38%; top:25%; transform: rotate(-15deg);').on('click', self.wardrobechanging)
+            ui.element('div').classes('absolute object-contain pointer-events-auto cursor-pointer z-20').style('width: 20vw; height: 35%; right:38%; top:25%; transform: rotate(-15deg);').on('click', self.wardrobechanging)
 
             self.cat = ui.element('div').classes('absolute z-10').style(f'left:{self.cat_x}%; top:{self.cat_y}%; width:15%; aspect-ratio: 1/1; image-rendering: pixelated;')
             with self.cat:

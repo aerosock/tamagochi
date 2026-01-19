@@ -1,0 +1,21 @@
+{
+    "name": "Adam",
+    "hp": 38,
+    "energy": 79,
+    "max_energy": 100,
+    "alive": true,
+    "money": 80,
+    "damage": 10,
+    "defence": 22,
+    "luck": 5,
+    "ult_charge": 0,
+    "ult_ready": false,
+    "defending": false,
+    "items": [
+        "plate_armor"
+    ],
+    "defeated_bosses": [
+        "big_slime"
+    ],
+    "difficulty": "Hard"
+}
