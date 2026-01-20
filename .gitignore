@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# NiceGUI
+.nicegui/
+
+# SQLite
+*.sqlite3-shm
+*.sqlite3-wal

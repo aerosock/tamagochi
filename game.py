@@ -1607,14 +1607,16 @@ class Game:
         self.loading_overlay()
         
     def set_initial_mobile_zoom(self):
+        # Mobile detection threshold: aspect ratio < 13/9 (~1.44) for portrait-oriented devices
+        # This matches the CSS media query in main.py
         ui.run_javascript('''
-            if (window.innerWidth <= 768) {
-                // Dispatch event to Python or directly set zoom
+            if (window.innerWidth / window.innerHeight < 13/9) {
+                // Dispatch event to Python or directly set zoom (aspect ratio based mobile detection)
                 window.dispatchEvent(new CustomEvent('setMobileZoom', { detail: { zoom: 2.0 } }));
             }
         ''')
         async def check_and_set():
-            is_mobile = await ui.run_javascript('return window.innerWidth <= 768')
+            is_mobile = await ui.run_javascript('return window.innerWidth / window.innerHeight < 13/9')
             if is_mobile and not self.user.isSleeping:
                 self.cam_zoom = 2.0
                 self.update_transform()
