@@ -126,7 +126,8 @@ font-size: 1.1em;
     color: #f0e4d7;
     font-weight: bold;
 }
-@media (max-width: 1024px) {
+/* Mobile layout: aspect ratio < 13/9 (~1.44) detects portrait-oriented devices */
+@media (max-aspect-ratio: 13/9) {
   .desktop-stats {
     display: none ! important;
   }
@@ -181,7 +182,8 @@ font-size: 1.1em;
   }
 }
 
-@media (min-width: 1025px) {
+/* Desktop layout: aspect ratio >= 13/9 (~1.44) detects landscape-oriented devices */
+@media (min-aspect-ratio: 13/9) {
   .mobile-stats-toggle {
     display: none !important;
   }
