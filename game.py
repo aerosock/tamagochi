@@ -1593,6 +1593,7 @@ class Game:
                     'relative bg-transparent pointer-events-auto aspect-[1/1] '
                     'w-[min(85vw,85vh,50vw,1800px)]'
                 ).style('transform-origin: center center; transition: transform 80ms ease-out;')
+                self.canvas._props['id'] = 'game-canvas'
                 self.canvas.on('wheel', self.on_wheel)
                 
                 with self.canvas:
