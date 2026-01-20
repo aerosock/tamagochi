@@ -126,7 +126,7 @@ font-size: 1.1em;
     color: #f0e4d7;
     font-weight: bold;
 }
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .desktop-stats {
     display: none ! important;
   }
@@ -181,7 +181,7 @@ font-size: 1.1em;
   }
 }
 
-@media (min-width: 769px) {
+@media (min-width: 1025px) {
   .mobile-stats-toggle {
     display: none !important;
   }
