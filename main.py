@@ -17,7 +17,7 @@ app.add_static_files('/static', str(BASE / 'static'))
 app.add_static_files('/textures', str(BASE / 'textures'))  
 active_games = {}
 
-ui.add_head_html("""
+ui.add_head_html(r"""
 <style>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 @keyframes glow-pulse {
@@ -282,14 +282,14 @@ font-size: 1.1em;
     if (!transformStr) return result;
     
     // Parse translate
-    const translateMatch = transformStr.match(/translate\\(([^,]+),\\s*([^)]+)\\)/);
+    const translateMatch = transformStr.match(/translate\(([^,]+),\s*([^)]+)\)/);
     if (translateMatch) {
       result.translateX = translateMatch[1].trim();
       result.translateY = translateMatch[2].trim();
     }
     
     // Parse scale
-    const scaleMatch = transformStr.match(/scale\\(([\\d.]+)\\)/);
+    const scaleMatch = transformStr.match(/scale\(([\d.]+)\)/);
     if (scaleMatch) {
       result.scale = parseFloat(scaleMatch[1]);
     }
