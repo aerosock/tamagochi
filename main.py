@@ -17,7 +17,7 @@ app.add_static_files('/static', str(BASE / 'static'))
 app.add_static_files('/textures', str(BASE / 'textures'))  
 active_games = {}
 
-ui.add_head_html("""
+ui.add_head_html(r"""
 <style>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 @keyframes glow-pulse {
@@ -266,6 +266,36 @@ font-size: 1.1em;
   (function() {
   let initialDistance = 0;
   let initialZoom = 1;
+  let canvasElement = null;
+  
+  // Helper function to get canvas element
+  function getCanvas() {
+    if (!canvasElement || !document.body.contains(canvasElement)) {
+      canvasElement = document.getElementById('game-canvas');
+    }
+    return canvasElement;
+  }
+  
+  // Helper function to parse transform values
+  function parseTransform(transformStr) {
+    const result = { translateX: '0%', translateY: '0%', scale: 1 };
+    if (!transformStr) return result;
+    
+    // Parse translate
+    const translateMatch = transformStr.match(/translate\(([^,]+),\s*([^)]+)\)/);
+    if (translateMatch) {
+      result.translateX = translateMatch[1].trim();
+      result.translateY = translateMatch[2].trim();
+    }
+    
+    // Parse scale
+    const scaleMatch = transformStr.match(/scale\(([\d.]+)\)/);
+    if (scaleMatch) {
+      result.scale = parseFloat(scaleMatch[1]);
+    }
+    
+    return result;
+  }
   
   document.addEventListener('touchstart', function(e) {
     if (e.touches.length === 2) {
@@ -274,10 +304,10 @@ font-size: 1.1em;
         e.touches[0].clientY - e.touches[1].clientY
       );
       // Get current zoom from the transform
-      const canvas = document.querySelector('[style*="transform-origin: center center"]');
+      const canvas = getCanvas();
       if (canvas) {
-        const match = canvas.style.transform.match(/scale\\(([\\d.]+)\\)/);
-        initialZoom = match ? parseFloat(match[1]) : 1;
+        const transform = parseTransform(canvas.style.transform);
+        initialZoom = transform.scale;
       }
     }
   }, { passive: false });
@@ -292,8 +322,13 @@ font-size: 1.1em;
       const scale = (currentDistance / initialDistance) * initialZoom;
       const clampedScale = Math.max(0.5, Math.min(2.0, scale));
       
-      // Emit custom event that NiceGUI can catch
-      window.dispatchEvent(new CustomEvent('pinchZoom', { detail: { zoom: clampedScale } }));
+      // Update canvas transform directly
+      const canvas = getCanvas();
+      if (canvas) {
+        const transform = parseTransform(canvas.style.transform);
+        // Apply new transform with updated scale
+        canvas.style.transform = `translate(${transform.translateX}, ${transform.translateY}) scale(${clampedScale})`;
+      }
     }
   }, { passive: false });
 })();
