@@ -20,4 +20,4 @@ jobs:
             source venv/bin/activate
             pip install -r requirements.txt
             # Restart the game service to apply code changes
-            systemctl restart tamagotchi
+            systemctl restart tamagochi
