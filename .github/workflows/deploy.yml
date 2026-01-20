@@ -15,7 +15,7 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.KEY }}
           script: |
-            cd /var/www/tamagotchi
+            cd /var/www/tamagochi
             git pull
             source venv/bin/activate
             pip install -r requirements.txt
