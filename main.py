@@ -292,8 +292,18 @@ font-size: 1.1em;
       const scale = (currentDistance / initialDistance) * initialZoom;
       const clampedScale = Math.max(0.5, Math.min(2.0, scale));
       
-      // Emit custom event that NiceGUI can catch
-      window.dispatchEvent(new CustomEvent('pinchZoom', { detail: { zoom: clampedScale } }));
+      // Update canvas transform directly
+      const canvas = document.querySelector('[style*="transform-origin: center center"]');
+      if (canvas) {
+        // Extract translate values from current transform
+        const currentTransform = canvas.style.transform || '';
+        const translateMatch = currentTransform.match(/translate\\(([^,]+),\\s*([^)]+)\\)/);
+        const translateX = translateMatch ? translateMatch[1] : '0%';
+        const translateY = translateMatch ? translateMatch[2] : '0%';
+        
+        // Apply new transform with updated scale
+        canvas.style.transform = `translate(${translateX}, ${translateY}) scale(${clampedScale})`;
+      }
     }
   }, { passive: false });
 })();
